@@ -11,12 +11,30 @@ data class Account(
     var purpose: String,
     var color: Int,
     /** Momento (epoch ms) hasta el que la cuenta está "descansando" por límite de uso. 0 = disponible. */
-    var limitUntil: Long = 0L
+    var limitUntil: Long = 0L,
+    /** Momento (epoch ms) en que se marcó el límite; sirve para calcular qué parte del descanso ya pasó. 0 = no se sabe. */
+    var limitStart: Long = 0L
 ) {
     /** Cada cuenta usa un perfil de WebView propio: cookies y datos totalmente separados. */
     val profileName: String get() = "acc_$id"
 
     fun limitActive(now: Long = System.currentTimeMillis()): Boolean = limitUntil > now
+
+    /**
+     * Qué fracción del descanso falta (1 = recién marcado, 0 = terminó). Si la marca es vieja y no
+     * tiene inicio guardado, se supone el plazo estándar más cercano (5 h, 24 h o 7 d).
+     */
+    fun limitFraction(now: Long = System.currentTimeMillis()): Float {
+        if (!limitActive(now)) return 0f
+        val remaining = limitUntil - now
+        val total = if (limitStart in 1 until limitUntil) {
+            limitUntil - limitStart
+        } else {
+            val h = 3_600_000L
+            listOf(5 * h, 24 * h, 7 * 24 * h).firstOrNull { it >= remaining } ?: remaining
+        }
+        return (remaining.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+    }
 
     companion object {
         fun newId(): String = UUID.randomUUID().toString().replace("-", "").take(12)
@@ -41,7 +59,8 @@ class AccountStore(context: Context) {
                     name = o.getString("name"),
                     purpose = o.optString("purpose", ""),
                     color = o.getInt("color"),
-                    limitUntil = o.optLong("limitUntil", 0L)
+                    limitUntil = o.optLong("limitUntil", 0L),
+                    limitStart = o.optLong("limitStart", 0L)
                 )
             }
         } catch (e: Exception) {
@@ -59,6 +78,7 @@ class AccountStore(context: Context) {
                     .put("purpose", a.purpose)
                     .put("color", a.color)
                     .put("limitUntil", a.limitUntil)
+                    .put("limitStart", a.limitStart)
             )
         }
         prefs.edit().putString("accounts", arr.toString()).apply()

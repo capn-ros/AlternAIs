@@ -157,6 +157,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var infoDot: View
     private lateinit var btnToggleDock: ImageButton
     private lateinit var btnMore: ImageButton
+    private lateinit var timeBar: TimeBar
     private lateinit var dockBg: GradientDrawable
     private var dockCollapsed = false
     private var borderColor = 0
@@ -165,6 +166,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var drawerBg: GradientDrawable
     private lateinit var drawerSwitch: MaterialSwitch
     private var drawerOpen = false
+    private var dockRadius = 0f
+    private lateinit var dockLayer: LayerDrawable
+    private val drawerIcons = mutableListOf<TextView>()
+    private var drawerCaption: TextView? = null
 
     private var currentId: String? = null
     private var previousId: String? = null
@@ -466,8 +471,9 @@ class MainActivity : AppCompatActivity() {
         }
         // Plegada: punto de la cuenta (izquierda) y flecha (derecha). Desplegada: nombre, ajustes, círculos y botón +.
         chipScroll.visibility = if (collapsed) View.GONE else View.VISIBLE
-        // INVISIBLE (no GONE) para que el punto quede a la izquierda y la flecha a la derecha
-        info.visibility = if (collapsed) View.INVISIBLE else View.VISIBLE
+        // Plegada: la barra de tiempo ocupa el lugar del texto (punto a la izquierda, flecha a la derecha)
+        info.visibility = if (collapsed) View.GONE else View.VISIBLE
+        timeBar.visibility = if (collapsed) View.VISIBLE else View.GONE
         btnMore.visibility = if (collapsed) View.GONE else View.VISIBLE
         if (collapsed) setDrawerOpen(false)
         btnToggleDock.animate().rotation(if (collapsed) 180f else 0f).setDuration(220).start()
@@ -519,23 +525,48 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Bandeja con esquinas superiores redondeadas; el borde de abajo queda fuera y se recorta. */
-    private fun styleTray(v: View, bg: GradientDrawable) {
-        val r = dp(22).toFloat()
-        v.background = LayerDrawable(arrayOf(bg)).apply { setLayerInset(0, 0, 0, 0, -dp(8)) }
+    private fun styleTray(v: View, bg: GradientDrawable, radius: () -> Float): LayerDrawable {
+        val layer = LayerDrawable(arrayOf(bg)).apply { setLayerInset(0, 0, 0, 0, -dp(8)) }
+        v.background = layer
         v.outlineProvider = object : ViewOutlineProvider() {
             override fun getOutline(view: View, outline: Outline) {
-                outline.setRoundRect(0, 0, view.width, view.height + dp(24), r)
+                outline.setRoundRect(0, 0, view.width, view.height + dp(24), radius())
             }
         }
         v.clipToOutline = true
         v.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ -> view.invalidateOutline() }
+        return layer
+    }
+
+    /**
+     * Con el cajón abierto la barra pierde las esquinas redondeadas y su borde de arriba, así el
+     * borde de color del cajón sigue de corrido por los costados de la barra, sin hueco.
+     */
+    private fun setDockMerged(merged: Boolean) {
+        val r = if (merged) 0f else dp(22).toFloat()
+        dockRadius = r
+        dockBg.cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+        dockLayer.setLayerInset(0, 0, if (merged) -dp(8) else 0, 0, -dp(8))
+        dock.invalidateOutline()
+        dock.invalidate()
     }
 
     private fun brand(): Int = ContextCompat.getColor(this, R.color.brand)
 
-    private fun applyIcon(tv: TextView, icon: Int) {
+    /** Color de la cuenta activa: lo usan los íconos y detalles de la barra y del cajón. */
+    private fun accent(): Int = accounts.firstOrNull { it.id == currentId }?.color ?: brand()
+
+    private fun retintIcons() {
+        val c = accent()
+        btnMore.imageTintList = ColorStateList.valueOf(c)
+        btnToggleDock.imageTintList = ColorStateList.valueOf(c)
+        drawerCaption?.setTextColor(c)
+        drawerIcons.forEach { tv -> tv.compoundDrawablesRelative[0]?.setTint(c) }
+    }
+
+    private fun applyIcon(tv: TextView, icon: Int, tint: Int = accent()) {
         val dr = AppCompatResources.getDrawable(this, icon)!!.mutate()
-        dr.setTint(brand())
+        dr.setTint(tint)
         dr.setBounds(0, 0, dp(24), dp(24))
         tv.setCompoundDrawablesRelative(dr, null, null, null)
         tv.compoundDrawablePadding = dp(16)
@@ -550,7 +581,7 @@ class MainActivity : AppCompatActivity() {
         d.isClickable = true // que los toques no pasen al WebView de atrás
         d.setPadding(dp(8), dp(16), dp(8), dp(12))
         drawerBg = newTrayBg()
-        styleTray(d, drawerBg)
+        styleTray(d, drawerBg) { dp(22).toFloat() }
 
         val head = LinearLayout(this)
         head.orientation = LinearLayout.HORIZONTAL
@@ -576,7 +607,8 @@ class MainActivity : AppCompatActivity() {
         val caption = TextView(this)
         caption.text = "Ajustes"
         caption.textSize = 13f
-        caption.setTextColor(brand())
+        caption.setTextColor(accent())
+        drawerCaption = caption
         caption.setTypeface(caption.typeface, android.graphics.Typeface.BOLD)
         caption.setPadding(dp(16), dp(14), dp(16), dp(2))
         d.addView(caption)
@@ -592,6 +624,7 @@ class MainActivity : AppCompatActivity() {
         label.textSize = 16f
         label.setTextColor(onSurface())
         applyIcon(label, R.drawable.ic_bubbles)
+        drawerIcons.add(label)
         bubbleRow.addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         drawerSwitch = MaterialSwitch(this)
         drawerSwitch.isClickable = false
@@ -603,24 +636,24 @@ class MainActivity : AppCompatActivity() {
         }
         d.addView(bubbleRow)
 
-        sheetRow(d, null, "Recargar cuenta actual", R.drawable.ic_reload) {
+        drawerIcons.add(sheetRow(d, null, "Recargar cuenta actual", R.drawable.ic_reload) {
             setDrawerOpen(false)
             currentId?.let { webViews[it]?.reload() }
-        }
-        sheetRow(d, null, "Ver descargas", R.drawable.ic_download) {
+        })
+        drawerIcons.add(sheetRow(d, null, "Ver descargas", R.drawable.ic_download) {
             setDrawerOpen(false)
             try {
                 startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
             } catch (_: Exception) {
                 snack("No se pudo abrir Descargas")
             }
-        }
-        sheetRow(d, null, "Permisos de la app", R.drawable.ic_shield) {
+        })
+        drawerIcons.add(sheetRow(d, null, "Permisos de la app", R.drawable.ic_shield) {
             setDrawerOpen(false)
             startActivity(
                 Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
             )
-        }
+        })
 
         d.visibility = View.GONE
         container.addView(
@@ -639,6 +672,7 @@ class MainActivity : AppCompatActivity() {
         drawer.animate().cancel()
         if (open) {
             drawerSwitch.isChecked = store.bubbleEnabled && BubbleService.canDraw(this)
+            setDockMerged(true)
             drawer.alpha = 0f
             drawer.visibility = View.VISIBLE
             drawer.doOnLayout {
@@ -649,7 +683,12 @@ class MainActivity : AppCompatActivity() {
             }
         } else {
             drawer.animate().translationY(drawer.height.toFloat()).setDuration(200)
-                .withEndAction { if (!drawerOpen) drawer.visibility = View.GONE }.start()
+                .withEndAction {
+                    if (!drawerOpen) {
+                        drawer.visibility = View.GONE
+                        setDockMerged(false)
+                    }
+                }.start()
         }
     }
 
@@ -697,7 +736,8 @@ class MainActivity : AppCompatActivity() {
         // Fondo con esquinas superiores redondeadas y borde de color
         borderColor = 0
         dockBg = newTrayBg()
-        styleTray(d, dockBg)
+        dockRadius = dp(22).toFloat()
+        dockLayer = styleTray(d, dockBg) { dockRadius }
 
         // Fila de info
         val row = LinearLayout(this)
@@ -710,6 +750,10 @@ class MainActivity : AppCompatActivity() {
         val dot = View(this)
         dot.id = R.id.infoDot
         row.addView(dot, LinearLayout.LayoutParams(dp(16), dp(16)).apply { marginEnd = dp(10) })
+
+        val bar = TimeBar(this)
+        bar.visibility = View.GONE
+        row.addView(bar, LinearLayout.LayoutParams(0, dp(22), 1f).apply { marginEnd = dp(8) })
 
         val name = TextView(this)
         name.id = R.id.info
@@ -753,6 +797,7 @@ class MainActivity : AppCompatActivity() {
         dock = d
         infoRow = row
         infoDot = dot
+        timeBar = bar
         info = name
         btnMore = more
         btnToggleDock = toggle
@@ -783,12 +828,13 @@ class MainActivity : AppCompatActivity() {
 
     // ---------------------------------------------------------------- Chips
 
-    private val circleSize get() = dp(40)
+    private val circleSize get() = dp(44)
+    private val circleExtra get() = dp(7)
 
     private fun rebuildChips(animateIn: Boolean = false) {
         chips.clear()
         chipGroup.removeAllViews()
-        val gap = LinearLayout.LayoutParams(circleSize, circleSize).apply {
+        val gap = LinearLayout.LayoutParams(circleSize, circleSize + circleExtra * 2).apply {
             marginStart = dp(6)
             marginEnd = dp(6)
         }
@@ -827,7 +873,12 @@ class MainActivity : AppCompatActivity() {
             pop(add)
             addAccountFlow()
         }
-        chipGroup.addView(add, LinearLayout.LayoutParams(gap))
+        // mismo diámetro que el disco de color de los círculos (el resto es anillo y aire)
+        val addSize = circleSize - dp(10)
+        chipGroup.addView(add, LinearLayout.LayoutParams(addSize, addSize).apply {
+            marginStart = dp(11)
+            marginEnd = dp(11)
+        })
 
         refreshCircles()
 
@@ -844,17 +895,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Redibuja cada círculo: color de la cuenta, inicial, aro si es la activa, punto ámbar si descansa. */
+    /**
+     * Redibuja cada círculo: color e inicial; si la cuenta descansa, el anillo es el tiempo que falta
+     * (se va borrando); la cuenta activa lleva una rayita debajo.
+     */
     private fun refreshCircles() {
         accounts.forEach { acc ->
             val iv = chips[acc.id] ?: return@forEach
             iv.setImageBitmap(
-                Ui.avatar(
-                    acc.color, Ui.initial(acc.name), circleSize,
-                    ring = acc.id == currentId, resting = acc.limitActive(), ringColor = onSurface()
+                Ui.timerAvatar(
+                    acc.color, Ui.initial(acc.name), circleSize, circleExtra,
+                    acc.limitFraction(), onSurface(), acc.id == currentId, onSurface()
                 )
             )
-            iv.contentDescription = if (acc.limitActive()) "${acc.name} (en descanso)" else acc.name
+            iv.contentDescription = if (acc.limitActive()) {
+                "${acc.name}, en descanso, faltan " + formatRemaining(acc.limitUntil - System.currentTimeMillis())
+            } else acc.name
         }
     }
 
@@ -866,10 +922,11 @@ class MainActivity : AppCompatActivity() {
         val acc = accounts.firstOrNull { it.id == currentId }
         if (acc == null) {
             info.text = ""
+            timeBar.set(0f, "", Color.GRAY, onSurface())
             return
         }
         setBorderColor(acc.color)
-        btnToggleDock.imageTintList = ColorStateList.valueOf(acc.color)
+        retintIcons()
         val dot = GradientDrawable()
         dot.shape = GradientDrawable.OVAL
         dot.setColor(acc.color)
@@ -885,6 +942,13 @@ class MainActivity : AppCompatActivity() {
             parts.add("Disponible")
         }
         info.text = parts.joinToString(" · ")
+
+        if (acc.limitActive()) {
+            val left = formatRemaining(acc.limitUntil - System.currentTimeMillis())
+            timeBar.set(acc.limitFraction(), "${acc.name} · faltan $left", acc.color, onSurface())
+        } else {
+            timeBar.set(1f, "${acc.name} · Disponible", acc.color, onSurface())
+        }
     }
 
     private fun formatRemaining(ms: Long): String {
@@ -905,6 +969,7 @@ class MainActivity : AppCompatActivity() {
         accounts.forEach { a ->
             if (a.limitUntil in 1L..now) {
                 a.limitUntil = 0L
+                a.limitStart = 0L
                 changed = true
                 Toast.makeText(this, "«${a.name}» ya puede usarse de nuevo", Toast.LENGTH_LONG).show()
             }
@@ -1408,14 +1473,14 @@ class MainActivity : AppCompatActivity() {
         col.addView(head)
     }
 
-    private fun sheetRow(col: LinearLayout, sheet: BottomSheetDialog?, text: String, icon: Int? = null, onClick: () -> Unit): TextView {
+    private fun sheetRow(col: LinearLayout, sheet: BottomSheetDialog?, text: String, icon: Int? = null, tint: Int = accent(), onClick: () -> Unit): TextView {
         val tv = TextView(this)
         tv.text = text
         tv.textSize = 16f
         tv.setTextColor(onSurface())
         tv.gravity = Gravity.CENTER_VERTICAL
         tv.setPadding(dp(16), dp(14), dp(16), dp(14))
-        if (icon != null) applyIcon(tv, icon)
+        if (icon != null) applyIcon(tv, icon, tint)
         tv.setBackgroundResource(selectableBg())
         tv.setOnClickListener {
             sheet?.dismiss()
@@ -1432,17 +1497,17 @@ class MainActivity : AppCompatActivity() {
             "En descanso hasta " + DateFormat.format("EEE HH:mm", acc.limitUntil)
         } else "Disponible"
         sheetHeader(col, acc.name, listOf(acc.purpose, status).filter { it.isNotBlank() }.joinToString(" · "), acc.color)
-        sheetRow(col, sheet, "Editar nombre, propósito o color", R.drawable.ic_edit) { showAccountDialog(acc) }
-        sheetRow(col, sheet, "Recargar", R.drawable.ic_reload) { webViews[acc.id]?.reload() ?: select(acc.id) }
-        sheetRow(col, sheet, "Marcar límite alcanzado…", R.drawable.ic_clock) { showLimitDialog(acc) }
-        if (acc.limitActive()) sheetRow(col, sheet, "Quitar marca de límite", R.drawable.ic_check) { setLimit(acc, 0L) }
-        sheetRow(col, sheet, "Cerrar sesión y borrar datos", R.drawable.ic_logout) {
+        sheetRow(col, sheet, "Editar nombre, propósito o color", R.drawable.ic_edit, acc.color) { showAccountDialog(acc) }
+        sheetRow(col, sheet, "Recargar", R.drawable.ic_reload, acc.color) { webViews[acc.id]?.reload() ?: select(acc.id) }
+        sheetRow(col, sheet, "Marcar límite alcanzado…", R.drawable.ic_clock, acc.color) { showLimitDialog(acc) }
+        if (acc.limitActive()) sheetRow(col, sheet, "Quitar marca de límite", R.drawable.ic_check, acc.color) { setLimit(acc, 0L) }
+        sheetRow(col, sheet, "Cerrar sesión y borrar datos", R.drawable.ic_logout, acc.color) {
             confirm(
                 "Cerrar sesión",
                 "Se cierra la sesión de «${acc.name}» y se borran sus cookies y datos en este dispositivo."
             ) { wipeAccount(acc, remove = false) }
         }
-        sheetRow(col, sheet, "Eliminar cuenta", R.drawable.ic_trash) {
+        sheetRow(col, sheet, "Eliminar cuenta", R.drawable.ic_trash, acc.color) {
             confirm(
                 "Eliminar cuenta",
                 "Se quita «${acc.name}» de la app y se borran sus datos en este dispositivo. Tu cuenta de Claude no se toca."
@@ -1573,6 +1638,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setLimit(acc: Account, until: Long) {
         acc.limitUntil = until
+        acc.limitStart = if (until > 0L) System.currentTimeMillis() else 0L
         onAccountsChanged()
         refreshChipTexts()
         updateInfo()
