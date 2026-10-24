@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Claudeck</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <aside id="rail">
+      <div class="brand" aria-hidden="true">
+        <svg viewBox="0 0 512 512" width="40" height="40" aria-hidden="true"><g transform="rotate(-20 256 400)"><rect x="156" y="110" width="200" height="290" rx="28" stroke="#2B2622" stroke-width="6" fill="#81B29A" /></g><g transform="rotate(20 256 400)"><rect x="156" y="110" width="200" height="290" rx="28" stroke="#2B2622" stroke-width="6" fill="#F2A541" /></g><rect x="156" y="110" width="200" height="290" rx="28" stroke="#2B2622" stroke-width="6" fill="#E07A5F" /><rect x="196" y="175" width="120" height="80" rx="24" fill="#FFF8F0" /><path d="M222 252 L212 284 L250 252 Z" fill="#FFF8F0" /><circle cx="226" cy="215" r="9" fill="#C25A3E" /><circle cx="256" cy="215" r="9" fill="#C25A3E" /><circle cx="286" cy="215" r="9" fill="#C25A3E" /></svg>
+      </div>
+      <nav id="accounts" aria-label="Cuentas"></nav>
+      <button id="add" class="add" title="Agregar cuenta (Ctrl+N)" aria-label="Agregar cuenta">+</button>
+    </aside>
+
+    <main>
+      <header id="topbar">
+        <div class="who" id="who" hidden>
+          <span class="dot" id="t-dot"></span>
+          <strong id="t-name"></strong>
+          <span class="purpose" id="t-purpose"></span>
+        </div>
+        <div class="spacer"></div>
+        <div class="status" id="t-status"></div>
+        <div class="actions" id="t-actions" hidden>
+          <button id="btn-reload" class="ghost" title="Recargar (Ctrl+R)">Recargar</button>
+          <button id="btn-limit" class="ghost" title="Marcar que llegaste al límite de uso">Límite</button>
+        </div>
+      </header>
+
+      <section id="stage">
+        <div class="empty" id="empty" hidden>
+          <svg viewBox="0 0 512 512" width="130" height="130" aria-hidden="true"><g transform="rotate(-20 256 400)"><rect x="156" y="110" width="200" height="290" rx="28" stroke="#2B2622" stroke-width="6" fill="#81B29A" /></g><g transform="rotate(20 256 400)"><rect x="156" y="110" width="200" height="290" rx="28" stroke="#2B2622" stroke-width="6" fill="#F2A541" /></g><rect x="156" y="110" width="200" height="290" rx="28" stroke="#2B2622" stroke-width="6" fill="#E07A5F" /><rect x="196" y="175" width="120" height="80" rx="24" fill="#FFF8F0" /><path d="M222 252 L212 284 L250 252 Z" fill="#FFF8F0" /><circle cx="226" cy="215" r="9" fill="#C25A3E" /><circle cx="256" cy="215" r="9" fill="#C25A3E" /><circle cx="286" cy="215" r="9" fill="#C25A3E" /></svg>
+          <h1>Tus cuentas, cada una en su lugar</h1>
+          <p>Agregá una cuenta para empezar. Cada una guarda su propia sesión, así que podés tener varias abiertas y cambiar con un clic.</p>
+          <button id="add-empty" class="primary">Agregar cuenta</button>
+          <p class="hint">Atajos: Ctrl+1…9 cambia de cuenta · Ctrl+Tab pasa a la siguiente · Ctrl+N agrega · Ctrl+R recarga</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="dlg-account">
+    <form id="form-account" method="dialog">
+      <h2 id="acc-title">Nueva cuenta</h2>
+      <label>Nombre
+        <input id="acc-name" type="text" maxlength="24" placeholder="Ej. Trabajo, Estudio" autocomplete="off" />
+      </label>
+      <label>¿Para qué la usás? <span class="opt">(opcional)</span>
+        <input id="acc-purpose" type="text" maxlength="60" placeholder="Ej. Código y revisiones" autocomplete="off" />
+      </label>
+      <div class="field">
+        <span class="lbl">Color</span>
+        <div id="swatches" class="swatches"></div>
+      </div>
+      <div class="buttons">
+        <button type="button" id="acc-cancel" class="ghost">Cancelar</button>
+        <button type="submit" class="primary">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-limit">
+    <h2>¿Cuándo se reinicia el límite?</h2>
+    <p class="sub" id="limit-sub"></p>
+    <div class="choices">
+      <button id="lim-5h" class="choice">En 5 horas</button>
+      <button id="lim-24h" class="choice">En 24 horas</button>
+      <button id="lim-7d" class="choice">En 7 días</button>
+      <div class="exact">
+        <label>A una hora exacta <input id="lim-time" type="time" /></label>
+        <button id="lim-exact" class="choice">Aplicar</button>
+      </div>
+    </div>
+    <div class="buttons">
+      <button id="lim-clear" class="ghost">Quitar marca</button>
+      <button id="lim-cancel" class="ghost">Cancelar</button>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-confirm">
+    <h2 id="cf-title"></h2>
+    <p id="cf-text" class="sub"></p>
+    <div class="buttons">
+      <button id="cf-no" class="ghost">Cancelar</button>
+      <button id="cf-yes" class="danger">Sí, continuar</button>
+    </div>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

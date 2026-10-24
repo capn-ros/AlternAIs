@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.gradle/
+build/
+!windows/build/
+local.properties
+*.iml
+.idea/
+.DS_Store
