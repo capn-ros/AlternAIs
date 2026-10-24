@@ -1,8 +1,12 @@
 name: Compilar desde cd.zip
 
 # Al subir (o reemplazar) cd.zip en la raíz del repo:
-# borra el contenido del repo, descomprime cd.zip y compila Android y Windows.
-# No publica ni guarda nada en el repo: los resultados quedan en Artifacts.
+# 1) borra el contenido del repo (menos .git, cd.zip y .github), descomprime cd.zip
+#    y COMMITEA los archivos descomprimidos en el repo;
+# 2) compila Android y Windows desde lo que quedó en el repo.
+# Los resultados (APK y .exe) quedan en Artifacts.
+# Ojo: GitHub no deja que Actions modifique .github/workflows, así que los workflows
+# del zip se ignoran: los que valen son los que ya están en el repo.
 on:
   push:
     paths:
@@ -10,13 +14,15 @@ on:
   workflow_dispatch:
 
 jobs:
-  android:
-    name: Android
+  extract:
+    name: Descomprimir cd.zip en el repo
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Descomprimir cd.zip sobre el repo
+      - name: Descomprimir y commitear
         shell: bash
         run: |
           set -e
@@ -31,9 +37,27 @@ jobs:
             src="$src/$(ls -A "$src")"
           fi
           [ -d "$src/android" ] || { echo "cd.zip debe traer la carpeta android/ en su raíz"; exit 1; }
-          find . -mindepth 1 -maxdepth 1 ! -name .git ! -name cd.zip -exec rm -rf {} +
-          cp -a "$src"/. .
-          ls -la
+          # Borra todo menos .git, cd.zip y .github (los workflows no se pueden tocar desde Actions)
+          find . -mindepth 1 -maxdepth 1 ! -name .git ! -name cd.zip ! -name .github -exec rm -rf {} +
+          (cd "$src" && tar cf - --exclude='./.github' .) | tar xf -
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "El repo ya tenía exactamente estos archivos"
+          else
+            git commit -q -m "Descomprimir cd.zip (compilación ${{ github.run_number }})"
+            git push
+          fi
+
+  android:
+    name: Android
+    needs: extract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
 
       - uses: actions/setup-java@v4
         with:
@@ -59,35 +83,16 @@ jobs:
           name: Claudeck-Android
           path: android/out/*.apk
           if-no-files-found: error
+          retention-days: 7
 
   windows:
     name: Windows
+    needs: extract
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Extraer cd.zip
-        shell: pwsh
-        run: |
-          if (-not (Test-Path cd.zip)) { throw "No existe cd.zip en la raíz del repo" }
-          $tmp = Join-Path $env:RUNNER_TEMP "cdx"
-          if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
-          Expand-Archive -Path cd.zip -DestinationPath $tmp -Force
-
-      - name: Reemplazar el contenido del repo
-        shell: bash
-        run: |
-          set -e
-          tmp="$(cygpath -u "$RUNNER_TEMP")/cdx"
-          rm -rf "$tmp/__MACOSX"
-          src="$tmp"
-          if [ ! -d "$src/windows" ] && [ "$(ls -A "$src" | wc -l)" = "1" ] && [ -d "$src/$(ls -A "$src")" ]; then
-            src="$src/$(ls -A "$src")"
-          fi
-          [ -d "$src/windows" ] || { echo "cd.zip debe traer la carpeta windows/ en su raíz"; exit 1; }
-          find . -mindepth 1 -maxdepth 1 ! -name .git ! -name cd.zip -exec rm -rf {} +
-          cp -a "$src"/. .
-          ls -la
+        with:
+          ref: ${{ github.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -115,3 +120,22 @@ jobs:
           name: Claudeck-Windows
           path: windows/dist/*.exe
           if-no-files-found: error
+          retention-days: 7
+
+  limpiar:
+    name: Borrar artifacts anteriores
+    needs: [android, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Borrar artifacts anteriores
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/${{ github.repository }}/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.workflow_run.id != ${{ github.run_id }}) | .id' |
+          while read -r id; do
+            gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" || true
+          done
