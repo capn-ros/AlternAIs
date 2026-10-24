@@ -1,0 +1,40 @@
+name: Compilar Windows
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "windows/**"
+      - ".github/workflows/windows.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Versión según el número de compilación
+        run: npm version "1.0.${{ github.run_number }}" --no-git-tag-version
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Compilar instalador y versión portable
+        run: npx electron-builder --win --x64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Claudeck-Windows
+          path: windows/dist/*.exe
+          if-no-files-found: error

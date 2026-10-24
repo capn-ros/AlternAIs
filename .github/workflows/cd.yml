@@ -1,0 +1,117 @@
+name: Compilar desde cd.zip
+
+# Al subir (o reemplazar) cd.zip en la raíz del repo:
+# borra el contenido del repo, descomprime cd.zip y compila Android y Windows.
+# No publica ni guarda nada en el repo: los resultados quedan en Artifacts.
+on:
+  push:
+    paths:
+      - "cd.zip"
+  workflow_dispatch:
+
+jobs:
+  android:
+    name: Android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Descomprimir cd.zip sobre el repo
+        shell: bash
+        run: |
+          set -e
+          [ -f cd.zip ] || { echo "No existe cd.zip en la raíz del repo"; exit 1; }
+          tmp="$RUNNER_TEMP/cdx"
+          rm -rf "$tmp"; mkdir -p "$tmp"
+          unzip -q cd.zip -d "$tmp"
+          rm -rf "$tmp/__MACOSX"
+          src="$tmp"
+          # Si el zip trae una sola carpeta en la raíz, entrar en ella
+          if [ ! -d "$src/android" ] && [ "$(ls -A "$src" | wc -l)" = "1" ] && [ -d "$src/$(ls -A "$src")" ]; then
+            src="$src/$(ls -A "$src")"
+          fi
+          [ -d "$src/android" ] || { echo "cd.zip debe traer la carpeta android/ en su raíz"; exit 1; }
+          find . -mindepth 1 -maxdepth 1 ! -name .git ! -name cd.zip -exec rm -rf {} +
+          cp -a "$src"/. .
+          ls -la
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Compilar APK
+        working-directory: android
+        run: gradle assembleRelease --no-daemon
+
+      - name: Renombrar APK
+        working-directory: android
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/release/app-release.apk "out/Claudeck-${{ github.run_number }}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Claudeck-Android
+          path: android/out/*.apk
+          if-no-files-found: error
+
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extraer cd.zip
+        shell: pwsh
+        run: |
+          if (-not (Test-Path cd.zip)) { throw "No existe cd.zip en la raíz del repo" }
+          $tmp = Join-Path $env:RUNNER_TEMP "cdx"
+          if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
+          Expand-Archive -Path cd.zip -DestinationPath $tmp -Force
+
+      - name: Reemplazar el contenido del repo
+        shell: bash
+        run: |
+          set -e
+          tmp="$(cygpath -u "$RUNNER_TEMP")/cdx"
+          rm -rf "$tmp/__MACOSX"
+          src="$tmp"
+          if [ ! -d "$src/windows" ] && [ "$(ls -A "$src" | wc -l)" = "1" ] && [ -d "$src/$(ls -A "$src")" ]; then
+            src="$src/$(ls -A "$src")"
+          fi
+          [ -d "$src/windows" ] || { echo "cd.zip debe traer la carpeta windows/ en su raíz"; exit 1; }
+          find . -mindepth 1 -maxdepth 1 ! -name .git ! -name cd.zip -exec rm -rf {} +
+          cp -a "$src"/. .
+          ls -la
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Versión según el número de compilación
+        shell: bash
+        working-directory: windows
+        run: npm version "1.0.${{ github.run_number }}" --no-git-tag-version
+
+      - name: Instalar dependencias
+        shell: bash
+        working-directory: windows
+        run: npm install
+
+      - name: Compilar instalador y versión portable
+        shell: bash
+        working-directory: windows
+        run: npx electron-builder --win --x64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Claudeck-Windows
+          path: windows/dist/*.exe
+          if-no-files-found: error
