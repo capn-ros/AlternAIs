@@ -108,12 +108,23 @@ jobs:
         working-directory: windows
         run: npm install
 
-      - name: Compilar instalador y versión portable
+      - name: Compilar app y versión portable
         shell: bash
         working-directory: windows
-        run: npx electron-builder --win --x64 --publish never
+        run: npx electron-builder --win dir portable --x64 --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Instalador (Inno Setup)
+        shell: pwsh
+        working-directory: windows
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          & $iscc "/DAppVersion=1.0.${{ github.run_number }}" installer\claudeck.iss
+          if ($LASTEXITCODE -ne 0) { throw "Falló Inno Setup" }
 
       - uses: actions/upload-artifact@v4
         with:
