@@ -756,10 +756,17 @@ function applySettings() {
 
 // Cada servicio tiene su tema (Claude oscuro y Replit claro por defecto; el logo del cajón lo alterna),
 // sin importar el tema de Windows: nativeTheme lo aplica a la interfaz y a las páginas (prefers-color-scheme).
+// Fondo de la ventana: el de la web del servicio (Claude #FFFFFF / #191919, Replit crema / #1E1E1F).
+function windowBg() {
+  const light = state.themes[state.service] === 'light';
+  if (state.service === 'replit') return light ? '#fbf8f4' : '#1e1e1f';
+  return light ? '#ffffff' : '#191919';
+}
+
 function applyServiceTheme() {
   const light = state.themes[state.service] === 'light';
   nativeTheme.themeSource = light ? 'light' : 'dark';
-  if (win && !win.isDestroyed()) win.setBackgroundColor(light ? '#fbf8f4' : '#1c1a18');
+  if (win && !win.isDestroyed()) win.setBackgroundColor(windowBg());
 }
 
 function createWindow() {
@@ -770,7 +777,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: 'AlternAIs',
-    backgroundColor: dark ? '#1c1a18' : '#f6f2ec',
+    backgroundColor: windowBg(),
     frame: false,
     resizable: true,
     autoHideMenuBar: true,

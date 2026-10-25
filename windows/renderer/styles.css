@@ -30,6 +30,35 @@
   }
 }
 
+/* Colores medidos de las webs: Claude claro #FFFFFF / oscuro #191919; Replit oscuro #1E1E1F. */
+:root[data-service="claude"][data-theme="light"] {
+  --bg: #ffffff;
+  --rail: #f4f4f2;
+  --surface: #ffffff;
+  --text: #1a1a1a;
+  --muted: #6b6b6b;
+  --line: rgba(26, 26, 26, 0.14);
+  --ring: #000000;
+}
+:root[data-service="claude"][data-theme="dark"] {
+  --bg: #191919;
+  --rail: #121212;
+  --surface: #191919;
+  --text: #f0f0f0;
+  --muted: #9a9a9a;
+  --line: rgba(240, 240, 240, 0.14);
+  --ring: #ffffff;
+}
+:root[data-service="replit"][data-theme="dark"] {
+  --bg: #1e1e1f;
+  --rail: #171718;
+  --surface: #1e1e1f;
+  --text: #f0f0f0;
+  --muted: #9a9a9b;
+  --line: rgba(240, 240, 240, 0.14);
+  --ring: #ffffff;
+}
+
 /* Replit: tema claro con el crema de su web (Claude queda oscuro: lo fuerza main.js con nativeTheme). */
 :root[data-service="replit"][data-theme="light"] {
   --bg: #fbf8f4;

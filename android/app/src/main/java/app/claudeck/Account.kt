@@ -109,10 +109,19 @@ class AccountStore(context: Context) {
         }
 
     /** Fondo de la barra y del cajón según el tema del servicio en uso. */
-    val surface: Int get() = if (dark) 0xFF1F1B18.toInt() else 0xFFFBF8F4.toInt()
+    val surface: Int
+        get() = when {
+            // Colores medidos de las webs: Claude claro #FFFFFF / oscuro #191919; Replit claro crema #FBF8F4 / oscuro #1E1E1F.
+            service == Service.CLAUDE -> if (dark) 0xFF191919.toInt() else 0xFFFFFFFF.toInt()
+            else -> if (dark) 0xFF1E1E1F.toInt() else 0xFFFBF8F4.toInt()
+        }
 
     /** Texto e íconos neutros sobre ese fondo. */
-    val onSurface: Int get() = if (dark) 0xFFF5EFE6.toInt() else 0xFF1F1B18.toInt()
+    val onSurface: Int
+        get() = when {
+            service == Service.CLAUDE -> if (dark) 0xFFF0F0F0.toInt() else 0xFF1A1A1A.toInt()
+            else -> if (dark) 0xFFF0F0F0.toInt() else 0xFF1F1B18.toInt()
+        }
 
     // Claude conserva las claves originales (retrocompatible); los demás llevan sufijo.
     private fun accountsKey(s: Service) = if (s == Service.CLAUDE) "accounts" else "accounts_${s.key}"
