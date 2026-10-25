@@ -1,6 +1,6 @@
 {
   "name": "claudeck",
-  "productName": "AlternIAs",
+  "productName": "AlternAIs",
   "version": "1.0.0",
   "description": "Dos IAs en una app (Claude y Replit): varias cuentas abiertas a la vez, cada una con su sesión aislada",
   "author": "Andrés Londero",
@@ -16,7 +16,7 @@
   },
   "build": {
     "appId": "app.claudeck",
-    "productName": "AlternIAs",
+    "productName": "AlternAIs",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -34,7 +34,7 @@
       ]
     },
     "portable": {
-      "artifactName": "AlternIAs-Portable-${version}.${ext}"
+      "artifactName": "AlternAIs-Portable-${version}.${ext}"
     }
   }
 }

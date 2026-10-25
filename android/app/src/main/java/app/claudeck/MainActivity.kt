@@ -323,7 +323,7 @@ class MainActivity : AppCompatActivity() {
             if (accounts.isEmpty()) {
                 findViewById<View>(android.R.id.content).postDelayed({ startTutorial() }, 500)
             } else {
-                // No interrumpir a quienes ya usan una versión anterior de AlternIAs.
+                // No interrumpir a quienes ya usan una versión anterior de AlternAIs.
                 store.tutorialShown = true
             }
         }
@@ -721,7 +721,7 @@ class MainActivity : AppCompatActivity() {
                 snack("No se pudo abrir Descargas")
             }
         })
-        drawerAboutRow = sheetRow(d, null, "Acerca de AlternIAs", R.drawable.ic_info) {
+        drawerAboutRow = sheetRow(d, null, "Acerca de AlternAIs", R.drawable.ic_info) {
             setDrawerOpen(false)
             showAboutDialog()
         }
@@ -1347,7 +1347,7 @@ class MainActivity : AppCompatActivity() {
             if (!cookie.isNullOrEmpty()) req.addRequestHeader("Cookie", cookie)
             if (!ua.isNullOrEmpty()) req.addRequestHeader("User-Agent", ua)
             req.setTitle(name)
-            req.setDescription("AlternIAs")
+            req.setDescription("AlternAIs")
             req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
             val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
@@ -1677,9 +1677,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun showAboutDialog() {
         MaterialAlertDialogBuilder(this)
-            .setTitle("Acerca de AlternIAs")
+            .setTitle("Acerca de AlternAIs")
             .setMessage(
-                "AlternIAs organiza sesiones independientes de claude.ai y replit.com (cada uno con sus propias cuentas) para que puedas cambiar de cuenta sin mezclar sus datos.\n\n" +
+                "AlternAIs organiza sesiones independientes de claude.ai y replit.com (cada uno con sus propias cuentas) para que puedas cambiar de cuenta sin mezclar sus datos.\n\n" +
                     "Pensada y diseñada por Andrés Londero.\n\n" +
                     "No es una aplicación oficial de Anthropic. Si el acceso con Google falla en el navegador integrado, iniciá sesión con tu correo electrónico."
             )
@@ -1718,7 +1718,7 @@ class MainActivity : AppCompatActivity() {
         val target: View?
         when (index) {
             0 -> {
-                title = "Bienvenido a AlternIAs"
+                title = "Bienvenido a AlternAIs"
                 body = "Cada cuenta conserva su propia sesión. Cuando Claude te pida iniciar sesión, elegí tu correo electrónico y el código que te envía; «Continuar con Google» puede fallar en un navegador integrado."
                 target = emptyView
             }
@@ -1741,7 +1741,7 @@ class MainActivity : AppCompatActivity() {
             }
             else -> {
                 title = "Acerca de"
-                body = "Acerca de AlternIAs muestra qué hace la app y quién la pensó y diseñó. La opción está en este menú."
+                body = "Acerca de AlternAIs muestra qué hace la app y quién la pensó y diseñó. La opción está en este menú."
                 setDrawerOpen(true)
                 target = drawerAboutRow
             }
@@ -1953,7 +1953,7 @@ class MainActivity : AppCompatActivity() {
                 .setTitle("Permiso necesario")
                 .setMessage(
                     "Para mostrar la burbuja sobre otras apps, activá «Mostrar sobre otras apps» " +
-                        "para AlternIAs en la pantalla que se abre y volvé."
+                        "para AlternAIs en la pantalla que se abre y volvé."
                 )
                 .setPositiveButton("Abrir ajustes") { _, _ ->
                     pendingBubble = true

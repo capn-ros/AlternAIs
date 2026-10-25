@@ -1,4 +1,4 @@
-# AlternIAs
+# AlternAIs
 
 Tu mazo de cuentas de claude.ai y replit.com: varias abiertas a la vez, cada una con su **sesión totalmente aislada**, y cambio entre ellas con un toque. Para Android y Windows, compiladas en GitHub.
 
@@ -11,7 +11,7 @@ No es una app oficial de Anthropic: es un contenedor que abre `claude.ai` y guar
 3. El workflow **Compilar desde cd.zip** borra el contenido del repo, descomprime el zip y compila Android y Windows. No publica ni guarda nada en el repo.
 4. Cuando termine, bajá de **Artifacts**:
    - `Claudeck-Android` → `Claudeck-N.apk`
-   - `Claudeck-Windows` → `AlternIAs-Setup-1.0.N.exe` (instalador) y `AlternIAs-Portable-1.0.N.exe` (sin instalar)
+   - `Claudeck-Windows` → `AlternAIs-Setup-1.0.N.exe` (instalador)
 
 `cd.zip` debe tener en su raíz lo mismo que la raíz del repo (`android/`, `windows/`, `.github/`), sin carpeta intermedia (si trae una sola carpeta, también la entiende).
 
@@ -27,17 +27,17 @@ El APK usa siempre la misma firma (incluida en `android/app/debug.keystore`), as
 - **Descanso por límite de uso:** cuando una cuenta llega a su límite, la marcás (en 5 h, 24 h, 7 días o a una hora exacta; en Replit, además, el día de renovación mensual, y las opciones siguen sus cuotas: Modo gratis cada 5 h con tope semanal, créditos diarios y créditos mensuales). Se ve en descanso con la cuenta regresiva y la app te avisa cuando pasa.
 - **Cerrar sesión y borrar datos** o **eliminar** una cuenta, solo en el dispositivo.
 - **Tutorial de bienvenida** en el primer inicio, con opción para saltearlo. Recomienda iniciar sesión en Claude con el correo electrónico; «Continuar con Google» puede fallar en navegadores integrados.
-- En **Ajustes → Acerca de AlternIAs** encontrás la información de la app. Pensada y diseñada por **Andrés Londero**.
+- En **Ajustes → Acerca de AlternAIs** encontrás la información de la app. Pensada y diseñada por **Andrés Londero**.
 
 ### Android
 - Panel de cuentas abajo. Tocá una cuenta para cambiar, mantené apretado para editar, marcar límite, recargar, cerrar sesión o eliminar. Deslizá sobre la línea con el nombre para pasar a la cuenta siguiente/anterior; tocá esa línea para plegar el panel; el botón ⇄ vuelve a la cuenta anterior.
-- **Burbuja flotante**: en ⋮ → «Burbuja flotante». Aparece sobre cualquier app; arrastrala, tocala y elegí una cuenta para abrir AlternIAs directo en ella. Pide el permiso «Mostrar sobre otras apps».
+- **Burbuja flotante**: en ⋮ → «Burbuja flotante». Aparece sobre cualquier app; arrastrala, tocala y elegí una cuenta para abrir AlternAIs directo en ella. Pide el permiso «Mostrar sobre otras apps».
 - **Descargas**: los archivos que genera Claude se guardan en la carpeta Descargas (aviso con botón «Abrir»). En Android 9 o menor pide permiso de almacenamiento.
 - Mantené apretado el ícono de la app para abrir directo en una cuenta.
 - Requiere Android 8.0+ y un Android System WebView actualizado (Play Store).
 
 ### Windows
-- Barra lateral con las cuentas, clic derecho para el menú de cada una.
+- Barra de cuentas (a la izquierda, a la derecha o abajo: se elige en Ajustes), clic derecho para el menú de cada una. Ajustes también tiene **Iniciar con Windows** y qué hacer al cerrar: cerrar la app o dejarla en la **bandeja del sistema**.
 - Atajos: `Ctrl+1…9` cambia de cuenta, `Ctrl+Tab` pasa a la siguiente, `Ctrl+N` agrega, `Ctrl+R` recarga.
 - Ventana sin marco estándar de Windows, con barra de título y controles propios. El instalador de Inno Setup también incluye gráficos de marca a juego.
 - Para probarla en tu PC: `cd windows && npm install && npm start`.

@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('api', {
   menu: (id) => ipcRenderer.invoke('account:menu', id),
   modal: (open) => ipcRenderer.invoke('ui:modal', !!open),
   drawer: (open) => ipcRenderer.invoke('ui:drawer', !!open),
+  setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
   openDownloads: () => ipcRenderer.invoke('app:downloads'),
   onState: (cb) => ipcRenderer.on('state', (_e, s) => cb(s)),
   onAction: (cb) => ipcRenderer.on('action', (_e, a) => cb(a)),

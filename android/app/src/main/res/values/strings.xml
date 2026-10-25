@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">AlternIAs</string>
+    <string name="app_name">AlternAIs</string>
     <string name="empty_title">Tus cuentas, cada una en su lugar</string>
     <string name="empty_body">Agregá una cuenta para empezar. Cada una guarda su propia sesión, así que podés tener varias abiertas y cambiar con un toque.</string>
     <string name="add_account">Agregar cuenta</string>

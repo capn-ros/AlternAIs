@@ -116,6 +116,20 @@ function render() {
   });
   renderTopbar();
   renderServiceTabs();
+  renderSettings();
+}
+
+// Posición de la barra, inicio con Windows y comportamiento al cerrar.
+function renderSettings() {
+  const st = state.settings || { railPos: 'left', launchAtLogin: false, closeToTray: false };
+  $('#app').dataset.rail = st.railPos;
+  for (const b of document.querySelectorAll('#seg-rail button')) {
+    b.classList.toggle('on', b.dataset.rail === st.railPos);
+  }
+  for (const b of document.querySelectorAll('#seg-close button')) {
+    b.classList.toggle('on', (b.dataset.close === 'tray') === st.closeToTray);
+  }
+  $('#d-login').setAttribute('aria-checked', String(st.launchAtLogin));
 }
 
 function renderServiceTabs() {
@@ -307,6 +321,16 @@ for (const key of Object.keys(SERVICE_LABELS)) {
     if (state.service !== key) window.api.setService(key);
   });
 }
+for (const b of document.querySelectorAll('#seg-rail button')) {
+  b.addEventListener('click', () => window.api.setSettings({ railPos: b.dataset.rail }));
+}
+for (const b of document.querySelectorAll('#seg-close button')) {
+  b.addEventListener('click', () => window.api.setSettings({ closeToTray: b.dataset.close === 'tray' }));
+}
+$('#d-login').addEventListener('click', () => {
+  const on = $('#d-login').getAttribute('aria-checked') === 'true';
+  window.api.setSettings({ launchAtLogin: !on });
+});
 $('#d-reload').addEventListener('click', () => {
   if (state.selectedId) window.api.reload(state.selectedId);
   setDrawer(false);
@@ -347,7 +371,7 @@ window.api.onWindowState(({ maximized }) => {
 
 const tourSteps = [
   {
-    title: 'Bienvenido a AlternIAs',
+    title: 'Bienvenido a AlternAIs',
     copy: 'Cada cuenta conserva su propia sesión. Cuando Claude te pida iniciar sesión, elegí tu correo electrónico y el código que te envía; «Continuar con Google» puede fallar en un navegador integrado.',
     target: () => $('#stage'),
   },
@@ -363,13 +387,13 @@ const tourSteps = [
   },
   {
     title: 'Ajustes',
-    copy: 'Abrí el cajón de ajustes para recargar la página, revisar Descargas o agregar otra cuenta. Lo abrí para que veas dónde están esas funciones.',
+    copy: 'Abrí el cajón de ajustes para recargar la página, revisar Descargas, agregar otra cuenta, mover la barra de cuentas, iniciar con Windows o elegir qué pasa al cerrar. Lo abrí para que veas dónde están esas funciones.',
     target: () => $('#drawer'),
     enter: () => setDrawer(true),
   },
   {
     title: 'Acerca de',
-    copy: 'En este menú también está Acerca de AlternIAs, con la información de la app y su autoría. AlternIAs no es una aplicación oficial de Anthropic.',
+    copy: 'En este menú también está Acerca de AlternAIs, con la información de la app y su autoría. AlternAIs no es una aplicación oficial de Anthropic.',
     target: () => $('#d-about'),
     enter: () => setDrawer(true),
   },

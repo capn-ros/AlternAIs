@@ -8,6 +8,8 @@ const {
   Notification,
   nativeTheme,
   Menu,
+  Tray,
+  nativeImage,
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -18,6 +20,7 @@ app.setPath('userData', path.join(app.getPath('appData'), 'Claudeck'));
 
 const RAIL_W = 76; // ancho de la barra lateral (debe coincidir con styles.css)
 const TOPBAR_H = 80; // marco propio + barra superior (debe coincidir con styles.css)
+const RAIL_H = 72; // alto de la barra de cuentas cuando va abajo (debe coincidir con --rail-h)
 const DRAWER_W = 300; // ancho del cajón de ajustes (debe coincidir con --drawer-w)
 // Cada servicio es una "mitad" de la app: sitio propio y cuentas propias.
 const SERVICES = {
@@ -61,7 +64,14 @@ const configuredSessions = new WeakSet();
 
 // `state` es lo que ve el renderer: las cuentas y la cuenta activa del servicio en uso.
 // `buckets` guarda las de cada servicio por separado (Claude conserva las claves originales del archivo).
-let state = { accounts: [], selectedId: null, tutorialShown: false, service: 'claude' };
+let state = {
+  accounts: [],
+  selectedId: null,
+  tutorialShown: false,
+  service: 'claude',
+  // Opciones de la app: posición de la barra de cuentas, inicio con Windows y qué pasa al cerrar.
+  settings: { railPos: 'left', launchAtLogin: false, closeToTray: false },
+};
 const buckets = {
   claude: { accounts: [], selectedId: null },
   replit: { accounts: [], selectedId: null },
@@ -94,6 +104,12 @@ function loadState() {
     }
     state.tutorialShown = raw.tutorialShown === true;
     state.service = SERVICES[raw.service] ? raw.service : 'claude';
+    const st = raw.settings && typeof raw.settings === 'object' ? raw.settings : {};
+    state.settings = {
+      railPos: ['left', 'right', 'bottom'].includes(st.railPos) ? st.railPos : 'left',
+      launchAtLogin: st.launchAtLogin === true,
+      closeToTray: st.closeToTray === true,
+    };
   } catch (_) {
     /* primera vez: estado vacío */
   }
@@ -120,6 +136,7 @@ function saveState() {
       replit: buckets.replit,
       service: state.service,
       tutorialShown: state.tutorialShown,
+      settings: state.settings,
     };
     const tmp = stateFile() + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(out, null, 2));
@@ -256,13 +273,24 @@ function destroyView(id) {
 function layout() {
   if (!win || win.isDestroyed()) return;
   const [w, h] = win.getContentSize();
-  const left = RAIL_W + (drawerOpen ? DRAWER_W : 0); // con el cajón abierto la página se corre a la derecha
-  const bounds = {
-    x: left,
-    y: TOPBAR_H,
-    width: Math.max(0, w - left),
-    height: Math.max(0, h - TOPBAR_H),
-  };
+  // La barra de cuentas puede ir a la izquierda, a la derecha o abajo; con el cajón abierto la
+  // página deja ese lugar libre (del lado de la barra).
+  const drawer = drawerOpen ? DRAWER_W : 0;
+  const pos = state.settings.railPos;
+  let x = 0;
+  let width = w;
+  let height = h - TOPBAR_H;
+  if (pos === 'left') {
+    x = RAIL_W + drawer;
+    width = w - x;
+  } else if (pos === 'right') {
+    width = w - RAIL_W - drawer;
+  } else {
+    x = drawer;
+    width = w - drawer;
+    height = h - TOPBAR_H - RAIL_H;
+  }
+  const bounds = { x, y: TOPBAR_H, width: Math.max(0, width), height: Math.max(0, height) };
   for (const v of views.values()) v.setBounds(bounds);
 }
 
@@ -277,7 +305,7 @@ function showCurrent() {
     }, 150);
   }
   const acc = find(state.selectedId);
-  if (win) win.setTitle(acc ? `${acc.name} — AlternIAs` : 'AlternIAs');
+  if (win) win.setTitle(acc ? `${acc.name} — AlternAIs` : 'AlternAIs');
 }
 
 function closeDrawerFromMain() {
@@ -336,7 +364,7 @@ function checkLimits() {
       changed = true;
       if (Notification.isSupported()) {
         new Notification({
-          title: 'AlternIAs',
+          title: 'AlternAIs',
           body: `«${a.name}» ya puede usarse de nuevo`,
         }).show();
       }
@@ -477,6 +505,18 @@ function registerIpc() {
     layout();
   });
 
+  ipcMain.handle('settings:set', (_e, patch) => {
+    if (!patch || typeof patch !== 'object') return;
+    const st = state.settings;
+    if (['left', 'right', 'bottom'].includes(patch.railPos)) st.railPos = patch.railPos;
+    if (typeof patch.launchAtLogin === 'boolean') st.launchAtLogin = patch.launchAtLogin;
+    if (typeof patch.closeToTray === 'boolean') st.closeToTray = patch.closeToTray;
+    applySettings();
+    saveState();
+    layout();
+    broadcast();
+  });
+
   ipcMain.handle('app:downloads', () => shell.openPath(app.getPath('downloads')));
 
   ipcMain.handle('account:menu', (_e, id) => {
@@ -515,6 +555,68 @@ function registerIpc() {
 
 // ---------------------------------------------------------------- Ventana
 
+// ---------------------------------------------------------------- Bandeja del sistema e inicio
+
+let tray = null;
+let quitting = false;
+
+function showWindow() {
+  if (!win || win.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+function ensureTray() {
+  if (tray) return;
+  try {
+    const img = nativeImage.createFromPath(path.join(__dirname, 'renderer', 'tray.png')).resize({ width: 32, height: 32 });
+    tray = new Tray(img);
+    tray.setToolTip('AlternAIs');
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: 'Abrir AlternAIs', click: showWindow },
+        { type: 'separator' },
+        {
+          label: 'Salir',
+          click: () => {
+            quitting = true;
+            app.quit();
+          },
+        },
+      ])
+    );
+    tray.on('click', showWindow);
+  } catch (e) {
+    console.error('No se pudo crear el ícono de la bandeja', e);
+    tray = null;
+  }
+}
+
+function removeTray() {
+  if (tray) {
+    tray.destroy();
+    tray = null;
+  }
+}
+
+// Aplica las opciones que dependen del sistema: bandeja e inicio con Windows.
+function applySettings() {
+  const st = state.settings;
+  if (st.closeToTray) ensureTray();
+  else removeTray();
+  if (app.isPackaged) {
+    try {
+      app.setLoginItemSettings({ openAtLogin: st.launchAtLogin, args: ['--hidden'] });
+    } catch (e) {
+      console.error('No se pudo cambiar el inicio con Windows', e);
+    }
+  }
+}
+
 // Claude va oscuro y Replit claro, sin importar el tema de Windows: nativeTheme lo aplica a la
 // interfaz y a las páginas (prefers-color-scheme).
 function applyServiceTheme() {
@@ -530,7 +632,7 @@ function createWindow() {
     height: 820,
     minWidth: 900,
     minHeight: 600,
-    title: 'AlternIAs',
+    title: 'AlternAIs',
     backgroundColor: dark ? '#1c1a18' : '#f6f2ec',
     frame: false,
     resizable: true,
@@ -551,7 +653,18 @@ function createWindow() {
     }
   };
   win.webContents.on('before-input-event', handleShortcut);
-  win.once('ready-to-show', () => win.show());
+  // Si Windows la abrió al iniciar sesión y se cierra a la bandeja, arranca escondida.
+  const startHidden = process.argv.includes('--hidden') && state.settings.closeToTray;
+  win.once('ready-to-show', () => {
+    if (!startHidden) win.show();
+  });
+  win.on('close', (e) => {
+    if (!quitting && state.settings.closeToTray) {
+      e.preventDefault();
+      ensureTray();
+      win.hide();
+    }
+  });
   for (const ev of ['resize', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen', 'restore']) {
     win.on(ev, layout);
   }
@@ -573,23 +686,20 @@ function createWindow() {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    if (win) {
-      if (win.isMinimized()) win.restore();
-      win.focus();
-    }
-  });
+  app.on('second-instance', () => showWindow());
 
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
     loadState();
     applyServiceTheme();
     app.on('before-quit', () => {
+      quitting = true;
       for (const [id, view] of views) {
         if (!view.webContents.isDestroyed()) rememberPage(id, view.webContents.getURL());
       }
     });
     registerIpc();
+    applySettings();
     createWindow();
     setInterval(checkLimits, 30000);
     app.on('activate', () => {

@@ -1,5 +1,7 @@
 :root {
   --rail-w: 76px;
+  --rail-h: 72px;
+  --ring: #ffffff;
   --topbar-h: 44px;
   --chrome-h: 36px;
   --drawer-w: 300px;
@@ -36,6 +38,7 @@
   --text: #1f1b18;
   --muted: #6b645c;
   --line: rgba(31, 27, 24, 0.14);
+  --ring: #000000;
 }
 
 * { box-sizing: border-box; }
@@ -58,6 +61,14 @@ body {
   grid-template-rows: var(--chrome-h) minmax(0, 1fr);
   height: 100%;
 }
+/* Posición de la barra de cuentas: izquierda (por defecto), derecha o abajo */
+#app[data-rail="right"] { grid-template-columns: 1fr var(--rail-w); }
+#app[data-rail="right"] main { grid-column: 1; }
+#app[data-rail="bottom"] {
+  grid-template-columns: 1fr;
+  grid-template-rows: var(--chrome-h) minmax(0, 1fr) var(--rail-h);
+}
+#app[data-rail="bottom"] main { grid-column: 1; grid-row: 2; }
 #rail, main, #topbar { transition: border-color 0.26s ease; }
 
 /* ---- Marco propio de ventana ---- */
@@ -68,7 +79,6 @@ body {
   display: flex;
   align-items: center;
   background: var(--surface);
-  border-bottom: 1px solid var(--line);
   -webkit-app-region: drag;
 }
 .chrome-brand {
@@ -107,11 +117,11 @@ body {
 .window-control.close:hover { background: #c0443a; color: white; }
 .window-control svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.15; }
 
-/* ---- Barra lateral ---- */
+/* ---- Barra de cuentas ---- */
 #rail {
   grid-column: 1;
   grid-row: 2;
-  background: var(--rail);
+  background: var(--surface);
   border-right: 3px solid var(--accent);
   position: relative;
   z-index: 3;
@@ -121,19 +131,39 @@ body {
   padding: 12px 0;
   gap: 10px;
 }
-.brand { height: 40px; display: grid; place-items: center; }
+#app[data-rail="right"] #rail { grid-column: 2; border-right: 0; border-left: 3px solid var(--accent); }
+#app[data-rail="bottom"] #rail {
+  grid-column: 1;
+  grid-row: 3;
+  flex-direction: row;
+  border-right: 0;
+  border-top: 3px solid var(--accent);
+  padding: 0 14px;
+  gap: 6px;
+}
 #accounts {
   flex: 1;
   width: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   overflow-y: auto;
-  padding: 4px 0;
+  padding: 10px 0;
   scrollbar-width: none;
 }
 #accounts::-webkit-scrollbar { display: none; }
+#app[data-rail="bottom"] #accounts {
+  flex-direction: row;
+  height: 100%;
+  width: auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0 10px;
+  gap: 14px;
+}
 
 .avatar {
   position: relative;
@@ -146,9 +176,23 @@ body {
   cursor: pointer;
   transition: transform 0.12s ease;
 }
+.avatar:hover { transform: scale(1.04); }
 .avatar:active { transform: scale(0.96); }
-/* Anillo = tiempo de espera que falta (se va borrando en sentido horario) */
-.avatar .ring { position: absolute; inset: 0; width: 100%; height: 100%; fill: none; stroke: var(--text); stroke-width: 3.5; }
+/* Cuenta activa: luz sutil detrás del ícono */
+.avatar::before {
+  content: "";
+  position: absolute;
+  inset: -9px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--c, #888) 55%, transparent) 0%, transparent 68%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+.avatar.selected::before { opacity: 0.9; animation: glow 3.4s ease-in-out infinite; }
+@keyframes glow { 0%, 100% { opacity: 0.9; transform: scale(1); } 50% { opacity: 0.55; transform: scale(1.07); } }
+/* Anillo = tiempo de espera que falta (blanco en Claude, negro en Replit; se va borrando en sentido horario) */
+.avatar .ring { position: absolute; inset: 0; width: 100%; height: 100%; fill: none; stroke: var(--ring); stroke-width: 3.5; }
 .avatar .ring .track { opacity: 0.2; }
 .avatar .ring .arc { stroke-linecap: round; transition: stroke-dasharray 0.4s ease; }
 .avatar .disk {
@@ -161,38 +205,8 @@ body {
   color: #fff;
   font: 600 19px "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-  transition: border-radius 0.18s ease;
 }
-.avatar:hover .disk, .avatar.selected .disk { border-radius: 14px; }
-/* Cuenta activa: rayita al costado */
-.avatar.selected::before {
-  content: "";
-  position: absolute;
-  left: -12px;
-  top: 16px;
-  width: 4px;
-  height: 24px;
-  border-radius: 0 4px 4px 0;
-  background: var(--text);
-}
-
-.add {
-  width: 38px;
-  height: 38px;
-  flex: none;
-  border-radius: 50%;
-  border: 0;
-  background: conic-gradient(from 0deg, #E07A5F, #F2A541, #81B29A, #4FB0C6, #6C8EAD, #9A7BD1, #D96C9F, #8D99AE, #E07A5F);
-  color: #fff;
-  font-size: 24px;
-  font-weight: 700;
-  line-height: 1;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
-  cursor: pointer;
-  transition: transform 0.15s ease;
-}
-.add:hover { transform: scale(1.08) rotate(30deg); }
-.add:active { transform: scale(0.95); }
+.avatar.selected .disk { box-shadow: 0 0 14px color-mix(in srgb, var(--c, #888) 60%, transparent); }
 
 .gear {
   width: 44px;
@@ -209,6 +223,18 @@ body {
 .gear:hover, .gear.on { background: var(--line); }
 
 /* Íconos de trazo redondeado, del color de la cuenta activa */
+/* El «+» de agregar cuenta cambia de color con la paleta */
+.add svg { animation: plus-hue 9s linear infinite; }
+@keyframes plus-hue {
+  0%, 100% { stroke: #E07A5F; }
+  14% { stroke: #F2A541; }
+  28% { stroke: #81B29A; }
+  42% { stroke: #4FB0C6; }
+  57% { stroke: #6C8EAD; }
+  71% { stroke: #9A7BD1; }
+  85% { stroke: #D96C9F; }
+}
+
 .gear svg, .drow svg {
   fill: none;
   stroke: var(--accent);
@@ -229,13 +255,23 @@ body {
   padding: 18px 10px;
   background: var(--surface);
   border-right: 3px solid var(--accent);
-  border-radius: 0 22px 0 0;
+  border-radius: 0;
+  overflow-y: auto;
   box-shadow: var(--shadow);
   transform: translateX(-105%);
   visibility: hidden;
   transition: transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1), visibility 0s linear 0.26s, border-color 0.26s ease;
 }
 #drawer.open { transform: none; visibility: visible; transition-delay: 0s; }
+#app[data-rail="right"] #drawer {
+  left: auto;
+  right: var(--rail-w);
+  border-right: 0;
+  border-left: 3px solid var(--accent);
+  transform: translateX(105%);
+}
+#app[data-rail="right"] #drawer.open { transform: none; }
+#app[data-rail="bottom"] #drawer { bottom: var(--rail-h); }
 .drawer-head { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 4px 6px; }
 .svc-tab {
   flex: 1;
@@ -274,6 +310,50 @@ body {
   cursor: pointer;
 }
 .drow:hover { background: var(--line); }
+/* Selectores segmentados e interruptor del cajón */
+.seg { display: flex; gap: 4px; padding: 4px 6px 2px; }
+.seg button {
+  flex: 1;
+  padding: 8px 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.seg button:hover { background: var(--line); }
+.seg button.on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  font-weight: 600;
+}
+.drow-label { color: var(--muted); font-size: 12.5px; padding: 8px 10px 2px; }
+.drow .sw {
+  margin-left: auto;
+  position: relative;
+  width: 38px;
+  height: 22px;
+  flex: none;
+  border-radius: 11px;
+  background: var(--line);
+  transition: background 0.2s ease;
+}
+.drow .sw::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+.drow[aria-checked="true"] .sw { background: var(--accent); }
+.drow[aria-checked="true"] .sw::after { transform: translateX(16px); background: #fff; }
 .drawer-hint { color: var(--muted); font-size: 12px; line-height: 1.5; padding: 14px 10px 0; margin: 0; }
 
 /* ---- Zona principal ---- */

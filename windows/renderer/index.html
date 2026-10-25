@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AlternIAs</title>
+  <title>AlternAIs</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -12,7 +12,7 @@
     <header id="chrome" class="chrome">
       <div class="chrome-brand" aria-hidden="true">
         <span class="chrome-mark"><svg viewBox="0 0 120 120" width="21" height="21" aria-hidden="true"><rect width="120" height="120" rx="28" fill="#1C1917" /><path d="M60 28A32 32 0 0 0 60 92Z" fill="#D97757" transform="translate(-1 5)" /><path d="M60 28A32 32 0 0 1 60 92Z" fill="#F5EFE6" transform="translate(1 -5)" /></svg></span>
-        <strong>AlternIAs</strong>
+        <strong>AlternAIs</strong>
       </div>
       <div class="chrome-drag" aria-hidden="true"></div>
       <div class="window-controls">
@@ -28,11 +28,10 @@
       </div>
     </header>
     <aside id="rail">
-      <div class="brand" aria-hidden="true">
-        <svg viewBox="0 0 120 120" width="40" height="40" aria-hidden="true"><rect width="120" height="120" rx="28" fill="#1C1917" /><path d="M60 28A32 32 0 0 0 60 92Z" fill="#D97757" transform="translate(-1 5)" /><path d="M60 28A32 32 0 0 1 60 92Z" fill="#F5EFE6" transform="translate(1 -5)" /></svg>
-      </div>
       <nav id="accounts" aria-label="Cuentas"></nav>
-      <button id="add" class="add" title="Agregar cuenta (Ctrl+N)" aria-label="Agregar cuenta">+</button>
+      <button id="add" class="gear add" title="Agregar cuenta (Ctrl+N)" aria-label="Agregar cuenta">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12,5v14 M5,12h14" /></svg>
+      </button>
       <button id="settings" class="gear" title="Ajustes" aria-label="Ajustes">
         <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M4,7h9 M17,7h3 M4,17h3 M11,17h9 M13,7a2,2 0 1,0 4,0a2,2 0 1,0 -4,0 M7,17a2,2 0 1,0 4,0a2,2 0 1,0 -4,0" /></svg>
       </button>
@@ -59,8 +58,25 @@
       </button>
       <button id="d-about" class="drow">
         <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5m0-8h.01" /></svg>
-        <span>Acerca de AlternIAs</span>
+        <span>Acerca de AlternAIs</span>
       </button>
+      <div class="drawer-cap">Barra de cuentas</div>
+      <div class="seg" id="seg-rail" role="group" aria-label="Posición de la barra de cuentas">
+        <button type="button" data-rail="left">Izquierda</button>
+        <button type="button" data-rail="right">Derecha</button>
+        <button type="button" data-rail="bottom">Abajo</button>
+      </div>
+      <div class="drawer-cap">Inicio y cierre</div>
+      <button id="d-login" class="drow" role="switch" aria-checked="false" type="button">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12,3v8 M6.4,6.9a8,8 0 1,0 11.2,0" /></svg>
+        <span>Iniciar con Windows</span>
+        <span class="sw" aria-hidden="true"></span>
+      </button>
+      <div class="drow-label">Al cerrar la ventana</div>
+      <div class="seg" id="seg-close" role="group" aria-label="Al cerrar la ventana">
+        <button type="button" data-close="exit">Cerrar la app</button>
+        <button type="button" data-close="tray">Bandeja del sistema</button>
+      </div>
       <p class="drawer-hint">Ctrl+1…9 cambia de cuenta · Ctrl+Tab pasa a la siguiente · Ctrl+N agrega · Ctrl+R recarga</p>
     </aside>
 
@@ -146,10 +162,10 @@
   </dialog>
 
   <dialog id="dlg-about">
-    <h2>Acerca de AlternIAs</h2>
-    <p class="sub">AlternIAs organiza varias sesiones independientes de claude.ai y replit.com (cada uno con sus propias cuentas) para que puedas cambiar de cuenta sin mezclar sus datos.</p>
+    <h2>Acerca de AlternAIs</h2>
+    <p class="sub">AlternAIs organiza varias sesiones independientes de claude.ai y replit.com (cada uno con sus propias cuentas) para que puedas cambiar de cuenta sin mezclar sus datos.</p>
     <p class="about-credit">Pensada y diseñada por <strong>Andrés Londero</strong>.</p>
-    <p class="about-note">AlternIAs no es una aplicación oficial de Anthropic. El acceso con Google puede no funcionar dentro del navegador integrado; si pasa, iniciá sesión con tu correo electrónico.</p>
+    <p class="about-note">AlternAIs no es una aplicación oficial de Anthropic. El acceso con Google puede no funcionar dentro del navegador integrado; si pasa, iniciá sesión con tu correo electrónico.</p>
     <p id="about-version" class="about-version"></p>
     <div class="buttons">
       <button type="button" id="about-close" class="primary">Listo</button>
