@@ -31,7 +31,7 @@
 }
 
 /* Replit: tema claro con el crema de su web (Claude queda oscuro: lo fuerza main.js con nativeTheme). */
-:root[data-service="replit"] {
+:root[data-service="replit"][data-theme="light"] {
   --bg: #fbf8f4;
   --rail: #fbf8f4;
   --surface: #fbf8f4;
@@ -329,7 +329,11 @@ body {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
-.drawer-head svg { flex: none; }
+.drawer-head svg { flex: none; display: block; }
+.logo-btn { flex: none; padding: 0; border: 0; background: transparent; border-radius: 12px; cursor: pointer; line-height: 0; transition: transform 0.15s ease; }
+.logo-btn:hover { transform: scale(1.06); }
+.logo-btn:active { transform: scale(0.94); }
+.logo-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .drawer-cap { color: var(--accent); font-size: 13px; font-weight: 700; padding: 14px 10px 4px; transition: color 0.26s ease; }
 .drow {
   display: flex;

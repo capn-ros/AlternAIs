@@ -70,6 +70,8 @@ let state = {
   selectedId: null,
   tutorialShown: false,
   service: 'claude',
+  // Tema (oscuro/claro) de cada servicio: Claude arranca oscuro y Replit claro.
+  themes: { claude: 'dark', replit: 'light' },
   // Opciones de la app: posición de la barra de cuentas, inicio con Windows y qué pasa al cerrar.
   settings: { railPos: 'left', launchAtLogin: false, closeToTray: false },
 };
@@ -106,6 +108,11 @@ function loadState() {
     }
     state.tutorialShown = raw.tutorialShown === true;
     state.service = SERVICES[raw.service] ? raw.service : 'claude';
+    const th = raw.themes && typeof raw.themes === 'object' ? raw.themes : {};
+    state.themes = {
+      claude: th.claude === 'light' ? 'light' : 'dark',
+      replit: th.replit === 'dark' ? 'dark' : 'light',
+    };
     const st = raw.settings && typeof raw.settings === 'object' ? raw.settings : {};
     state.settings = {
       railPos: ['left', 'right', 'bottom'].includes(st.railPos) ? st.railPos : 'left',
@@ -137,6 +144,7 @@ function saveState() {
       selectedId: buckets.claude.selectedId,
       replit: buckets.replit,
       service: state.service,
+      themes: state.themes,
       tutorialShown: state.tutorialShown,
       settings: state.settings,
     };
@@ -434,6 +442,14 @@ function registerIpc() {
   });
 
   ipcMain.handle('account:select', (_e, id) => selectAccount(id));
+
+  // Alterna entre vista oscura y clara del servicio activo (interfaz y páginas).
+  ipcMain.handle('theme:toggle', () => {
+    state.themes[state.service] = state.themes[state.service] === 'dark' ? 'light' : 'dark';
+    applyServiceTheme();
+    saveState();
+    broadcast();
+  });
 
   // Cambia de mitad de la app (Claude ↔ Replit): cada una con sus cuentas y su cuenta activa.
   ipcMain.handle('service:set', (_e, svc) => {
@@ -738,16 +754,16 @@ function applySettings() {
   }
 }
 
-// Claude va oscuro y Replit claro, sin importar el tema de Windows: nativeTheme lo aplica a la
-// interfaz y a las páginas (prefers-color-scheme).
+// Cada servicio tiene su tema (Claude oscuro y Replit claro por defecto; el logo del cajón lo alterna),
+// sin importar el tema de Windows: nativeTheme lo aplica a la interfaz y a las páginas (prefers-color-scheme).
 function applyServiceTheme() {
-  const light = state.service === 'replit';
+  const light = state.themes[state.service] === 'light';
   nativeTheme.themeSource = light ? 'light' : 'dark';
   if (win && !win.isDestroyed()) win.setBackgroundColor(light ? '#fbf8f4' : '#1c1a18');
 }
 
 function createWindow() {
-  const dark = state.service !== 'replit';
+  const dark = state.themes[state.service] === 'dark';
   win = new BrowserWindow({
     width: 1280,
     height: 820,

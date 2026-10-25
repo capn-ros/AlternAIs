@@ -101,6 +101,19 @@ class AccountStore(context: Context) {
             prefs.edit().putString("service", value.key).apply()
         }
 
+    /** Tema (oscuro/claro) del servicio en uso. Cada servicio recuerda el suyo; por defecto Claude oscuro y Replit claro. */
+    var dark: Boolean
+        get() = prefs.getBoolean("dark_${service.key}", service.dark)
+        set(value) {
+            prefs.edit().putBoolean("dark_${service.key}", value).apply()
+        }
+
+    /** Fondo de la barra y del cajón según el tema del servicio en uso. */
+    val surface: Int get() = if (dark) 0xFF1F1B18.toInt() else 0xFFFBF8F4.toInt()
+
+    /** Texto e íconos neutros sobre ese fondo. */
+    val onSurface: Int get() = if (dark) 0xFFF5EFE6.toInt() else 0xFF1F1B18.toInt()
+
     // Claude conserva las claves originales (retrocompatible); los demás llevan sufijo.
     private fun accountsKey(s: Service) = if (s == Service.CLAUDE) "accounts" else "accounts_${s.key}"
     private fun selectedKey(s: Service) = if (s == Service.CLAUDE) "selected" else "selected_${s.key}"

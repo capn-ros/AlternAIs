@@ -135,6 +135,7 @@ function renderSettings() {
 
 function renderServiceTabs() {
   document.documentElement.dataset.service = state.service;
+  document.documentElement.dataset.theme = (state.themes && state.themes[state.service]) || (state.service === 'replit' ? 'light' : 'dark');
   for (const key of Object.keys(SERVICE_LABELS)) {
     const tab = $('#svc-' + key);
     const on = state.service === key;
@@ -355,6 +356,7 @@ for (const b of document.querySelectorAll('#seg-rail button')) {
 for (const b of document.querySelectorAll('#seg-close button')) {
   b.addEventListener('click', () => window.api.setSettings({ closeToTray: b.dataset.close === 'tray' }));
 }
+$('#theme-logo').addEventListener('click', () => window.api.toggleTheme());
 $('#d-login').addEventListener('click', () => {
   const on = $('#d-login').getAttribute('aria-checked') === 'true';
   window.api.setSettings({ launchAtLogin: !on });

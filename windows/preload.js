@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('api', {
   add: (data) => ipcRenderer.invoke('account:add', data),
   update: (id, patch) => ipcRenderer.invoke('account:update', id, patch),
   select: (id) => ipcRenderer.invoke('account:select', id),
+  toggleTheme: () => ipcRenderer.invoke('theme:toggle'),
   setService: (svc) => ipcRenderer.invoke('service:set', svc),
   reload: (id) => ipcRenderer.invoke('account:reload', id),
   wipe: (id) => ipcRenderer.invoke('account:wipe', id),

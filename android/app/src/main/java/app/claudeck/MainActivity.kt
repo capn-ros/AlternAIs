@@ -412,7 +412,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun applySystemBars() {
         // Claude va oscuro y Replit claro, sin importar el tema del sistema.
-        val light = !store.service.dark
+        val light = !store.dark
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = light
             isAppearanceLightNavigationBars = light
@@ -421,17 +421,16 @@ class MainActivity : AppCompatActivity() {
 
     /** Pinta la barra, el cajón y los fondos con el tema del servicio activo (Claude oscuro, Replit claro). */
     private fun applyServiceTheme() {
-        val svc = store.service
-        window.statusBarColor = svc.surface
-        window.navigationBarColor = svc.surface
+        window.statusBarColor = store.surface
+        window.navigationBarColor = store.surface
         applySystemBars()
-        findViewById<View>(R.id.rootLayout).setBackgroundColor(svc.surface)
-        if (::dockBg.isInitialized) dockBg.setColor(svc.surface)
-        if (::drawerBg.isInitialized) drawerBg.setColor(svc.surface)
-        if (::info.isInitialized) info.setTextColor(svc.onSurface)
-        drawerIcons.forEach { it.setTextColor(svc.onSurface) }
-        if (::emptyView.isInitialized) recolorTexts(emptyView, svc.onSurface)
-        if (::errorView.isInitialized) recolorTexts(errorView, svc.onSurface)
+        findViewById<View>(R.id.rootLayout).setBackgroundColor(store.surface)
+        if (::dockBg.isInitialized) dockBg.setColor(store.surface)
+        if (::drawerBg.isInitialized) drawerBg.setColor(store.surface)
+        if (::info.isInitialized) info.setTextColor(store.onSurface)
+        drawerIcons.forEach { it.setTextColor(store.onSurface) }
+        if (::emptyView.isInitialized) recolorTexts(emptyView, store.onSurface)
+        if (::errorView.isInitialized) recolorTexts(errorView, store.onSurface)
         paintServiceTabs()
     }
 
@@ -452,7 +451,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Texto e íconos neutros sobre la barra: dependen del servicio activo, no del tema del sistema. */
-    private fun onSurface(): Int = store.service.onSurface
+    private fun onSurface(): Int = store.onSurface
 
     /** Texto sobre los menús del sistema (hojas inferiores), que siguen el tema del sistema. */
     private fun sheetOnSurface(): Int =
@@ -573,7 +572,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun newTrayBg(): GradientDrawable {
-        val fill = store.service.surface
+        val fill = store.surface
         val r = dp(22).toFloat()
         return GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
@@ -677,6 +676,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
         logo.clipToOutline = true
+        // Tocar el logo alterna entre vista oscura y clara del servicio activo (app y web).
+        logo.contentDescription = "Cambiar entre tema oscuro y claro"
+        logo.setOnClickListener { toggleTheme() }
         head.addView(tc, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         head.addView(logo, LinearLayout.LayoutParams(dp(48), dp(48)).apply {
             marginStart = dp(8)
@@ -767,6 +769,31 @@ class MainActivity : AppCompatActivity() {
                 setColor((c and 0x00FFFFFF) or (0x2E shl 24))
             } else null
         }
+    }
+
+    /**
+     * Alterna entre vista oscura y clara del servicio activo. La interfaz se repinta al instante; las
+     * páginas fijan su tema al crearse, así que se recrean y recargan (la sesión vive en el perfil).
+     */
+    private fun toggleTheme() {
+        store.dark = !store.dark
+        applyServiceTheme()
+        rebuildChips()
+        updateInfo()
+        retintIcons()
+        val keep = currentId
+        accounts.forEach { acc ->
+            webViews.remove(acc.id)?.let { wv ->
+                rememberPage(wv, wv.url)
+                (wv.parent as? ViewGroup)?.removeView(wv)
+                wv.destroy()
+            }
+            failed.remove(acc.id)
+        }
+        if (keep != null) select(keep)
+        updateErrorView()
+        BubbleService.refresh()
+        scheduleAutoHide()
     }
 
     /**
@@ -1200,7 +1227,7 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebView(acc: Account): WebView {
         // Claude oscuro, Replit claro: el WebView toma el tema de su contexto (prefers-color-scheme).
-        val dark = store.service.dark
+        val dark = store.dark
         val wv = WebView(ContextThemeWrapper(this, if (dark) R.style.Theme_Claudeck_WebDark else R.style.Theme_Claudeck_WebLight))
         wv.tag = acc.id
         if (multiProfileOk) {
@@ -1820,7 +1847,7 @@ class MainActivity : AppCompatActivity() {
                 cardElevation = dp(14).toFloat()
                 strokeWidth = dp(1)
                 strokeColor = ColorUtils.setAlphaComponent(onSurface(), 38)
-                setCardBackgroundColor(store.service.surface)
+                setCardBackgroundColor(store.surface)
                 useCompatPadding = true
             }
             val content = LinearLayout(this@MainActivity).apply {
