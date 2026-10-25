@@ -6,4 +6,7 @@
         <item name="android:statusBarColor">?attr/colorSurface</item>
         <item name="android:navigationBarColor">?attr/colorSurfaceContainer</item>
     </style>
+    <!-- Solo para el contexto de cada WebView: Claude se ve oscuro y Replit claro. -->
+    <style name="Theme.Claudeck.WebDark" parent="Theme.Material3.Dark.NoActionBar" />
+    <style name="Theme.Claudeck.WebLight" parent="Theme.Material3.Light.NoActionBar" />
 </resources>

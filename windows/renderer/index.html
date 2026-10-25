@@ -4,17 +4,64 @@
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Claudeck</title>
+  <title>AlternIAs</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div id="app">
+    <header id="chrome" class="chrome">
+      <div class="chrome-brand" aria-hidden="true">
+        <span class="chrome-mark"><svg viewBox="0 0 120 120" width="21" height="21" aria-hidden="true"><rect width="120" height="120" rx="28" fill="#1C1917" /><path d="M60 28A32 32 0 0 0 60 92Z" fill="#D97757" transform="translate(-1 5)" /><path d="M60 28A32 32 0 0 1 60 92Z" fill="#F5EFE6" transform="translate(1 -5)" /></svg></span>
+        <strong>AlternIAs</strong>
+      </div>
+      <div class="chrome-drag" aria-hidden="true"></div>
+      <div class="window-controls">
+        <button id="window-minimize" class="window-control" title="Minimizar" aria-label="Minimizar">
+          <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 9h8" /></svg>
+        </button>
+        <button id="window-maximize" class="window-control" title="Maximizar" aria-label="Maximizar">
+          <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2.25" y="2.25" width="7.5" height="7.5" rx="0.7" /></svg>
+        </button>
+        <button id="window-close" class="window-control close" title="Cerrar" aria-label="Cerrar">
+          <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 3 6 6m0-6L3 9" /></svg>
+        </button>
+      </div>
+    </header>
     <aside id="rail">
       <div class="brand" aria-hidden="true">
-        <svg viewBox="0 0 512 512" width="40" height="40" aria-hidden="true"><g transform="rotate(-20 256 400)"><rect x="156" y="110" width="200" height="290" rx="28" stroke="#2B2622" stroke-width="6" fill="#81B29A" /></g><g transform="rotate(20 256 400)"><rect x="156" y="110" width="200" height="290" rx="28" stroke="#2B2622" stroke-width="6" fill="#F2A541" /></g><rect x="156" y="110" width="200" height="290" rx="28" stroke="#2B2622" stroke-width="6" fill="#E07A5F" /><rect x="196" y="175" width="120" height="80" rx="24" fill="#FFF8F0" /><path d="M222 252 L212 284 L250 252 Z" fill="#FFF8F0" /><circle cx="226" cy="215" r="9" fill="#C25A3E" /><circle cx="256" cy="215" r="9" fill="#C25A3E" /><circle cx="286" cy="215" r="9" fill="#C25A3E" /></svg>
+        <svg viewBox="0 0 120 120" width="40" height="40" aria-hidden="true"><rect width="120" height="120" rx="28" fill="#1C1917" /><path d="M60 28A32 32 0 0 0 60 92Z" fill="#D97757" transform="translate(-1 5)" /><path d="M60 28A32 32 0 0 1 60 92Z" fill="#F5EFE6" transform="translate(1 -5)" /></svg>
       </div>
       <nav id="accounts" aria-label="Cuentas"></nav>
       <button id="add" class="add" title="Agregar cuenta (Ctrl+N)" aria-label="Agregar cuenta">+</button>
+      <button id="settings" class="gear" title="Ajustes" aria-label="Ajustes">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M4,7h9 M17,7h3 M4,17h3 M11,17h9 M13,7a2,2 0 1,0 4,0a2,2 0 1,0 -4,0 M7,17a2,2 0 1,0 4,0a2,2 0 1,0 -4,0" /></svg>
+      </button>
+    </aside>
+
+    <aside id="drawer" aria-label="Ajustes" aria-hidden="true">
+      <div class="drawer-head" role="tablist" aria-label="Servicio">
+        <button id="svc-claude" class="svc-tab" role="tab" type="button">Claude</button>
+        <svg viewBox="0 0 120 120" width="44" height="44" aria-hidden="true"><rect width="120" height="120" rx="28" fill="#1C1917" /><path d="M60 28A32 32 0 0 0 60 92Z" fill="#D97757" transform="translate(-1 5)" /><path d="M60 28A32 32 0 0 1 60 92Z" fill="#F5EFE6" transform="translate(1 -5)" /></svg>
+        <button id="svc-replit" class="svc-tab" role="tab" type="button">Replit</button>
+      </div>
+      <div class="drawer-cap">Ajustes</div>
+      <button id="d-reload" class="drow">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M20,12a8,8 0 1,1 -2.5,-5.8 M20,4v5h-5" /></svg>
+        <span>Recargar cuenta actual</span>
+      </button>
+      <button id="d-downloads" class="drow">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12,4v11 M7.5,11l4.5,4.5l4.5,-4.5 M5,20h14" /></svg>
+        <span>Ver descargas</span>
+      </button>
+      <button id="d-add" class="drow">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12,5v14 M5,12h14" /></svg>
+        <span>Agregar cuenta</span>
+      </button>
+      <button id="d-about" class="drow">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5m0-8h.01" /></svg>
+        <span>Acerca de AlternIAs</span>
+      </button>
+      <p class="drawer-hint">Ctrl+1…9 cambia de cuenta · Ctrl+Tab pasa a la siguiente · Ctrl+N agrega · Ctrl+R recarga</p>
     </aside>
 
     <main>
@@ -25,7 +72,10 @@
           <span class="purpose" id="t-purpose"></span>
         </div>
         <div class="spacer"></div>
-        <div class="status" id="t-status"></div>
+        <div class="timebar" id="t-bar" hidden>
+          <div class="tb-fill" id="t-fill"><span id="t-fill-label"></span></div>
+          <span class="tb-label" id="t-label"></span>
+        </div>
         <div class="actions" id="t-actions" hidden>
           <button id="btn-reload" class="ghost" title="Recargar (Ctrl+R)">Recargar</button>
           <button id="btn-limit" class="ghost" title="Marcar que llegaste al límite de uso">Límite</button>
@@ -34,7 +84,7 @@
 
       <section id="stage">
         <div class="empty" id="empty" hidden>
-          <svg viewBox="0 0 512 512" width="130" height="130" aria-hidden="true"><g transform="rotate(-20 256 400)"><rect x="156" y="110" width="200" height="290" rx="28" stroke="#2B2622" stroke-width="6" fill="#81B29A" /></g><g transform="rotate(20 256 400)"><rect x="156" y="110" width="200" height="290" rx="28" stroke="#2B2622" stroke-width="6" fill="#F2A541" /></g><rect x="156" y="110" width="200" height="290" rx="28" stroke="#2B2622" stroke-width="6" fill="#E07A5F" /><rect x="196" y="175" width="120" height="80" rx="24" fill="#FFF8F0" /><path d="M222 252 L212 284 L250 252 Z" fill="#FFF8F0" /><circle cx="226" cy="215" r="9" fill="#C25A3E" /><circle cx="256" cy="215" r="9" fill="#C25A3E" /><circle cx="286" cy="215" r="9" fill="#C25A3E" /></svg>
+          <svg viewBox="0 0 120 120" width="130" height="130" aria-hidden="true"><rect width="120" height="120" rx="28" fill="#1C1917" /><path d="M60 28A32 32 0 0 0 60 92Z" fill="#D97757" transform="translate(-1 5)" /><path d="M60 28A32 32 0 0 1 60 92Z" fill="#F5EFE6" transform="translate(1 -5)" /></svg>
           <h1>Tus cuentas, cada una en su lugar</h1>
           <p>Agregá una cuenta para empezar. Cada una guarda su propia sesión, así que podés tener varias abiertas y cambiar con un clic.</p>
           <button id="add-empty" class="primary">Agregar cuenta</button>
@@ -71,6 +121,10 @@
       <button id="lim-5h" class="choice">En 5 horas</button>
       <button id="lim-24h" class="choice">En 24 horas</button>
       <button id="lim-7d" class="choice">En 7 días</button>
+      <div class="exact" id="lim-renew-row" hidden>
+        <label>Renovación mensual (día) <input id="lim-date" type="date" /></label>
+        <button id="lim-renew" class="choice">Aplicar</button>
+      </div>
       <div class="exact">
         <label>A una hora exacta <input id="lim-time" type="time" /></label>
         <button id="lim-exact" class="choice">Aplicar</button>
@@ -90,6 +144,30 @@
       <button id="cf-yes" class="danger">Sí, continuar</button>
     </div>
   </dialog>
+
+  <dialog id="dlg-about">
+    <h2>Acerca de AlternIAs</h2>
+    <p class="sub">AlternIAs organiza varias sesiones independientes de claude.ai y replit.com (cada uno con sus propias cuentas) para que puedas cambiar de cuenta sin mezclar sus datos.</p>
+    <p class="about-credit">Pensada y diseñada por <strong>Andrés Londero</strong>.</p>
+    <p class="about-note">AlternIAs no es una aplicación oficial de Anthropic. El acceso con Google puede no funcionar dentro del navegador integrado; si pasa, iniciá sesión con tu correo electrónico.</p>
+    <p id="about-version" class="about-version"></p>
+    <div class="buttons">
+      <button type="button" id="about-close" class="primary">Listo</button>
+    </div>
+  </dialog>
+
+  <div id="tour" hidden aria-live="polite">
+    <div id="tour-focus" hidden aria-hidden="true"></div>
+    <section class="tour-card" role="dialog" aria-modal="true" aria-labelledby="tour-title">
+      <div class="tour-progress" id="tour-progress"></div>
+      <h2 id="tour-title"></h2>
+      <p id="tour-copy"></p>
+      <div class="tour-actions">
+        <button id="tour-skip" class="ghost" type="button">Saltar tutorial</button>
+        <button id="tour-next" class="primary" type="button">Siguiente</button>
+      </div>
+    </section>
+  </div>
 
   <script src="app.js"></script>
 </body>

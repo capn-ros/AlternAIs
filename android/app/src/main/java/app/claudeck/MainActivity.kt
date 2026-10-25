@@ -14,9 +14,12 @@ import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Outline
+import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
 import android.media.MediaScannerConnection
@@ -49,6 +52,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
+import android.view.ContextThemeWrapper
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -70,11 +74,16 @@ import androidx.core.graphics.drawable.IconCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.doOnLayout
 import androidx.webkit.ProfileStore
+import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
 import com.google.android.material.color.MaterialColors
+import com.google.android.material.datepicker.CalendarConstraints
+import com.google.android.material.datepicker.DateValidatorPointForward
+import com.google.android.material.datepicker.MaterialDatePicker
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.progressindicator.LinearProgressIndicator
@@ -93,8 +102,6 @@ class MainActivity : AppCompatActivity() {
         /** Extra para abrir la app directamente en una cuenta (burbuja, atajos del launcher). */
         const val EXTRA_SELECT = "app.claudeck.extra.SELECT"
 
-        private const val START_URL = "https://claude.ai/"
-
         /** Tiempo sin tocar la barra de cuentas antes de que se pliegue sola. */
         private const val AUTO_HIDE_MS = 4000L
 
@@ -102,7 +109,8 @@ class MainActivity : AppCompatActivity() {
         private const val BRIDGE = "claudeckDl"
         private val BRIDGE_ORIGINS = setOf(
             "https://claude.ai", "https://*.claude.ai",
-            "https://claude.com", "https://*.claude.com"
+            "https://claude.com", "https://*.claude.com",
+            "https://replit.com", "https://*.replit.com"
         )
 
         private val PALETTE = listOf(
@@ -170,6 +178,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var dockLayer: LayerDrawable
     private val drawerIcons = mutableListOf<TextView>()
     private var drawerCaption: TextView? = null
+    private var drawerAboutRow: TextView? = null
+    private var tabClaude: TextView? = null
+    private var tabReplit: TextView? = null
 
     private var currentId: String? = null
     private var previousId: String? = null
@@ -178,6 +189,9 @@ class MainActivity : AppCompatActivity() {
     private var afterNotif: (() -> Unit)? = null
     private var pendingStorage: (() -> Unit)? = null
     private var keyboardOpen = false
+    private var tutorialActive = false
+    private var tutorialIndex = 0
+    private var tutorialOverlay: TutorialOverlay? = null
     private var emptyAnim: android.animation.ObjectAnimator? = null
     private val handler = Handler(Looper.getMainLooper())
 
@@ -232,7 +246,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val autoHide = Runnable {
-        if (!dockCollapsed && !drawerOpen && accounts.isNotEmpty() && !keyboardOpen) setDockCollapsed(true, true)
+        if (!tutorialActive && !dockCollapsed && !drawerOpen && accounts.isNotEmpty() && !keyboardOpen) {
+            setDockCollapsed(true, true)
+        }
     }
 
     private val ticker = object : Runnable {
@@ -247,10 +263,10 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        store = AccountStore(this)
         applySystemBars()
         buildDock()
 
-        store = AccountStore(this)
         accounts.addAll(store.load())
 
         container = findViewById(R.id.container)
@@ -259,6 +275,7 @@ class MainActivity : AppCompatActivity() {
         emptyView = findViewById(R.id.emptyView)
         emptyIcon = findViewById(R.id.emptyIcon)
         errorView = findViewById(R.id.errorView)
+        applyServiceTheme()
 
         findViewById<View>(R.id.btnAddEmpty).setOnClickListener { addAccountFlow() }
         btnToggleDock.setOnClickListener { setDockCollapsed(!dockCollapsed, true) }
@@ -267,6 +284,10 @@ class MainActivity : AppCompatActivity() {
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                if (tutorialActive) {
+                    finishTutorial()
+                    return
+                }
                 if (drawerOpen) {
                     setDrawerOpen(false)
                     return
@@ -298,6 +319,14 @@ class MainActivity : AppCompatActivity() {
         if (start != null) select(start)
         updateEmptyState()
         updateShortcuts()
+        if (!store.tutorialShown) {
+            if (accounts.isEmpty()) {
+                findViewById<View>(android.R.id.content).postDelayed({ startTutorial() }, 500)
+            } else {
+                // No interrumpir a quienes ya usan una versión anterior de AlternIAs.
+                store.tutorialShown = true
+            }
+        }
 
         // Entrada animada del panel de cuentas
         dock.post {
@@ -347,7 +376,10 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(ticker)
         handler.removeCallbacks(autoHide)
         emptyAnim?.cancel()
-        webViews.values.forEach { it.onPause() }
+        webViews.values.forEach {
+            rememberPage(it, it.url)
+            it.onPause()
+        }
         super.onPause()
     }
 
@@ -370,12 +402,34 @@ class MainActivity : AppCompatActivity() {
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
     private fun applySystemBars() {
-        val night = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
-            Configuration.UI_MODE_NIGHT_YES
+        // Claude va oscuro y Replit claro, sin importar el tema del sistema.
+        val light = !store.service.dark
         WindowCompat.getInsetsController(window, window.decorView).apply {
-            isAppearanceLightStatusBars = !night
-            isAppearanceLightNavigationBars = !night
+            isAppearanceLightStatusBars = light
+            isAppearanceLightNavigationBars = light
         }
+    }
+
+    /** Pinta la barra, el cajón y los fondos con el tema del servicio activo (Claude oscuro, Replit claro). */
+    private fun applyServiceTheme() {
+        val svc = store.service
+        window.statusBarColor = svc.surface
+        window.navigationBarColor = svc.surface
+        applySystemBars()
+        findViewById<View>(R.id.rootLayout).setBackgroundColor(svc.surface)
+        if (::dockBg.isInitialized) dockBg.setColor(svc.surface)
+        if (::drawerBg.isInitialized) drawerBg.setColor(svc.surface)
+        if (::info.isInitialized) info.setTextColor(svc.onSurface)
+        drawerIcons.forEach { it.setTextColor(svc.onSurface) }
+        if (::emptyView.isInitialized) recolorTexts(emptyView, svc.onSurface)
+        if (::errorView.isInitialized) recolorTexts(errorView, svc.onSurface)
+        paintServiceTabs()
+    }
+
+    private fun recolorTexts(v: View, color: Int) {
+        if (v is android.widget.Button) return
+        if (v is TextView) v.setTextColor(color)
+        if (v is ViewGroup) for (i in 0 until v.childCount) recolorTexts(v.getChildAt(i), color)
     }
 
     private fun dotDrawable(color: Int, selected: Boolean): GradientDrawable {
@@ -383,15 +437,16 @@ class MainActivity : AppCompatActivity() {
         d.shape = GradientDrawable.OVAL
         d.setColor(color)
         if (selected) {
-            val ring = MaterialColors.getColor(
-                this, com.google.android.material.R.attr.colorOnSurface, Color.BLACK
-            )
-            d.setStroke(dp(3), ring)
+            d.setStroke(dp(3), onSurface())
         }
         return d
     }
 
-    private fun onSurface(): Int =
+    /** Texto e íconos neutros sobre la barra: dependen del servicio activo, no del tema del sistema. */
+    private fun onSurface(): Int = store.service.onSurface
+
+    /** Texto sobre los menús del sistema (hojas inferiores), que siguen el tema del sistema. */
+    private fun sheetOnSurface(): Int =
         MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, Color.BLACK)
 
     private fun updateEmptyState() {
@@ -483,7 +538,7 @@ class MainActivity : AppCompatActivity() {
     /** Reinicia la cuenta regresiva para plegar la barra sola (si está desplegada). */
     private fun scheduleAutoHide() {
         handler.removeCallbacks(autoHide)
-        if (!dockCollapsed && accounts.isNotEmpty()) handler.postDelayed(autoHide, AUTO_HIDE_MS)
+        if (!tutorialActive && !dockCollapsed && accounts.isNotEmpty()) handler.postDelayed(autoHide, AUTO_HIDE_MS)
     }
 
     /** Borde superior de la barra con el color de la cuenta activa (separa la barra de la pantalla de Claude). */
@@ -509,9 +564,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun newTrayBg(): GradientDrawable {
-        val fill = MaterialColors.getColor(
-            this, com.google.android.material.R.attr.colorSurfaceContainer, Color.WHITE
-        )
+        val fill = store.service.surface
         val r = dp(22).toFloat()
         return GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
@@ -554,13 +607,17 @@ class MainActivity : AppCompatActivity() {
     private fun brand(): Int = ContextCompat.getColor(this, R.color.brand)
 
     /** Color de la cuenta activa: lo usan los íconos y detalles de la barra y del cajón. */
-    private fun accent(): Int = accounts.firstOrNull { it.id == currentId }?.color ?: brand()
+    private fun accent(): Int = chrome(accounts.firstOrNull { it.id == currentId })
+
+    /** Color de la interfaz (borde, íconos, punto): el de la cuenta activa, en Claude y en Replit. */
+    private fun chrome(acc: Account?): Int = acc?.color ?: brand()
 
     private fun retintIcons() {
         val c = accent()
         btnMore.imageTintList = ColorStateList.valueOf(c)
         btnToggleDock.imageTintList = ColorStateList.valueOf(c)
         drawerCaption?.setTextColor(c)
+        paintServiceTabs()
         drawerIcons.forEach { tv -> tv.compoundDrawablesRelative[0]?.setTint(c) }
     }
 
@@ -586,7 +643,23 @@ class MainActivity : AppCompatActivity() {
         val head = LinearLayout(this)
         head.orientation = LinearLayout.HORIZONTAL
         head.gravity = Gravity.CENTER_VERTICAL
-        head.setPadding(dp(16), dp(0), dp(16), dp(4))
+        head.setPadding(dp(8), dp(0), dp(8), dp(4))
+
+        // [ Claude ]  (logo de la app)  [ Replit ]: tocar un nombre cambia de mitad de la app.
+        fun tab(service: Service): TextView {
+            val t = TextView(this)
+            t.text = service.label
+            t.textSize = 20f
+            t.gravity = Gravity.CENTER
+            t.setTypeface(t.typeface, android.graphics.Typeface.BOLD)
+            t.setPadding(dp(8), dp(10), dp(8), dp(10))
+            t.setOnClickListener { switchService(service) }
+            return t
+        }
+        val tc = tab(Service.CLAUDE)
+        val tr = tab(Service.REPLIT)
+        tabClaude = tc
+        tabReplit = tr
         val logo = ImageView(this)
         logo.setImageResource(R.mipmap.ic_launcher)
         logo.outlineProvider = object : ViewOutlineProvider() {
@@ -595,13 +668,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
         logo.clipToOutline = true
-        head.addView(logo, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginEnd = dp(14) })
-        val title = TextView(this)
-        title.text = "Claudeck"
-        title.textSize = 22f
-        title.setTypeface(title.typeface, android.graphics.Typeface.BOLD)
-        title.setTextColor(onSurface())
-        head.addView(title)
+        head.addView(tc, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        head.addView(logo, LinearLayout.LayoutParams(dp(48), dp(48)).apply {
+            marginStart = dp(8)
+            marginEnd = dp(8)
+        })
+        head.addView(tr, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        paintServiceTabs()
         d.addView(head)
 
         val caption = TextView(this)
@@ -648,12 +721,11 @@ class MainActivity : AppCompatActivity() {
                 snack("No se pudo abrir Descargas")
             }
         })
-        drawerIcons.add(sheetRow(d, null, "Permisos de la app", R.drawable.ic_shield) {
+        drawerAboutRow = sheetRow(d, null, "Acerca de AlternIAs", R.drawable.ic_info) {
             setDrawerOpen(false)
-            startActivity(
-                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
-            )
-        })
+            showAboutDialog()
+        }
+        drawerIcons.add(drawerAboutRow!!)
 
         d.visibility = View.GONE
         container.addView(
@@ -663,6 +735,57 @@ class MainActivity : AppCompatActivity() {
             )
         )
         drawer = d
+    }
+
+    /** Resalta la mitad activa (Claude / Replit) con el color de la cuenta activa. */
+    private fun paintServiceTabs() {
+        val c = accent()
+        val active = store.service
+        listOf(tabClaude to Service.CLAUDE, tabReplit to Service.REPLIT).forEach { (tv, svc) ->
+            tv ?: return@forEach
+            val on = svc == active
+            tv.setTextColor(if (on) c else (onSurface() and 0x00FFFFFF) or (0x99 shl 24))
+            tv.background = if (on) GradientDrawable().apply {
+                cornerRadius = dp(18).toFloat()
+                setColor((c and 0x00FFFFFF) or (0x2E shl 24))
+            } else null
+        }
+    }
+
+    /**
+     * Cambia de mitad de la app (Claude ↔ Replit). Cada una tiene sus cuentas, su cuenta activa y sus
+     * perfiles de WebView; los WebViews de la otra mitad quedan ocultos y conservan su sesión.
+     */
+    private fun switchService(target: Service) {
+        setDrawerOpen(false)
+        if (target == store.service) return
+        webViews.values.forEach { rememberPage(it, it.url) }
+        store.service = target
+        applyServiceTheme()
+        accounts.clear()
+        accounts.addAll(store.load())
+        currentId = null
+        previousId = null
+        rebuildChips(true)
+        val start = store.selectedId?.takeIf { id -> accounts.any { it.id == id } }
+            ?: accounts.firstOrNull()?.id
+        if (start != null) {
+            select(start)
+        } else {
+            webViews.values.forEach {
+                it.animate().cancel()
+                it.visibility = View.GONE
+            }
+            progress.visibility = View.INVISIBLE
+            setBorderColor(chrome(null))
+            updateInfo()
+            updateErrorView()
+        }
+        updateEmptyState()
+        updateShortcuts()
+        BubbleService.refresh()
+        retintIcons()
+        scheduleAutoHide()
     }
 
     /** El cajón sale desde detrás de la barra (el contenedor recorta lo que queda por debajo). */
@@ -701,7 +824,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Tocar fuera de la barra (y del cajón) la pliega. El toque sigue su camino al WebView. */
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        if (ev.actionMasked == MotionEvent.ACTION_DOWN && ::dock.isInitialized && ::drawer.isInitialized &&
+        if (!tutorialActive && ev.actionMasked == MotionEvent.ACTION_DOWN && ::dock.isInitialized && ::drawer.isInitialized &&
             !dockCollapsed && accounts.isNotEmpty() && dock.visibility == View.VISIBLE &&
             !hit(dock, ev) && !(drawerOpen && hit(drawer, ev))
         ) {
@@ -925,11 +1048,11 @@ class MainActivity : AppCompatActivity() {
             timeBar.set(0f, "", Color.GRAY, onSurface())
             return
         }
-        setBorderColor(acc.color)
+        setBorderColor(chrome(acc))
         retintIcons()
         val dot = GradientDrawable()
         dot.shape = GradientDrawable.OVAL
-        dot.setColor(acc.color)
+        dot.setColor(chrome(acc))
         infoDot.background = dot
 
         val parts = mutableListOf(acc.name)
@@ -945,9 +1068,9 @@ class MainActivity : AppCompatActivity() {
 
         if (acc.limitActive()) {
             val left = formatRemaining(acc.limitUntil - System.currentTimeMillis())
-            timeBar.set(acc.limitFraction(), "${acc.name} · faltan $left", acc.color, onSurface())
+            timeBar.set(acc.limitFraction(), "${acc.name} · faltan $left", chrome(acc), onSurface())
         } else {
-            timeBar.set(1f, "${acc.name} · Disponible", acc.color, onSurface())
+            timeBar.set(1f, "${acc.name} · Disponible", chrome(acc), onSurface())
         }
     }
 
@@ -994,7 +1117,7 @@ class MainActivity : AppCompatActivity() {
         store.selectedId = id
         webViews.getOrPut(id) { createWebView(acc) }
         transitionTo(id, if (oldIdx < 0) 0 else Integer.signum(newIdx - oldIdx))
-        progress.setIndicatorColor(acc.color)
+        progress.setIndicatorColor(chrome(acc))
         progress.visibility = View.INVISIBLE
         updateSelection()
         updateInfo()
@@ -1039,6 +1162,15 @@ class MainActivity : AppCompatActivity() {
         errorView.visibility = if (currentId != null && failed.contains(currentId)) View.VISIBLE else View.GONE
     }
 
+    private fun rememberPage(view: WebView?, url: String?) {
+        val id = view?.tag as? String ?: return
+        val safeUrl = urlForRestore(store.service, url) ?: return
+        val acc = accounts.firstOrNull { it.id == id } ?: return
+        if (acc.lastUrl == safeUrl) return
+        acc.lastUrl = safeUrl
+        store.save(accounts)
+    }
+
     private fun retryCurrent() {
         val id = currentId ?: return
         failed.remove(id)
@@ -1050,7 +1182,9 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebView(acc: Account): WebView {
-        val wv = WebView(this)
+        // Claude oscuro, Replit claro: el WebView toma el tema de su contexto (prefers-color-scheme).
+        val dark = store.service.dark
+        val wv = WebView(ContextThemeWrapper(this, if (dark) R.style.Theme_Claudeck_WebDark else R.style.Theme_Claudeck_WebLight))
         wv.tag = acc.id
         if (multiProfileOk) {
             // Perfil propio: cookies, almacenamiento y caché separados por cuenta.
@@ -1067,6 +1201,24 @@ class MainActivity : AppCompatActivity() {
             domStorageEnabled = true
             allowFileAccess = false
             mediaPlaybackRequiresUserGesture = true
+        }
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
+                WebSettingsCompat.setAlgorithmicDarkeningAllowed(wv.settings, dark)
+            } else if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK)) {
+                @Suppress("DEPRECATION")
+                WebSettingsCompat.setForceDark(
+                    wv.settings,
+                    if (dark) WebSettingsCompat.FORCE_DARK_ON else WebSettingsCompat.FORCE_DARK_OFF
+                )
+                if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK_STRATEGY)) {
+                    @Suppress("DEPRECATION")
+                    WebSettingsCompat.setForceDarkStrategy(
+                        wv.settings, WebSettingsCompat.DARK_STRATEGY_PREFER_WEB_THEME_OVER_USER_AGENT_DARKENING
+                    )
+                }
+            }
+        } catch (_: Exception) {
         }
         if (bridgeOk) {
             try {
@@ -1091,12 +1243,18 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 view?.evaluateJavascript(HOOK_JS, null)
+                rememberPage(view, url)
                 val id = view?.tag as? String ?: return
                 if (failed.remove(id) && id == currentId) updateErrorView()
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 view?.evaluateJavascript(HOOK_JS, null)
+                rememberPage(view, url)
+            }
+
+            override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                rememberPage(view, url)
             }
 
             override fun onReceivedError(
@@ -1137,7 +1295,7 @@ class MainActivity : AppCompatActivity() {
             handleDownload(wv, url, userAgent, contentDisposition, mimeType)
         }
         container.addView(wv, 0)
-        wv.loadUrl(START_URL)
+        wv.loadUrl(urlForRestore(store.service, acc.lastUrl) ?: store.service.startUrl)
         return wv
     }
 
@@ -1189,7 +1347,7 @@ class MainActivity : AppCompatActivity() {
             if (!cookie.isNullOrEmpty()) req.addRequestHeader("Cookie", cookie)
             if (!ua.isNullOrEmpty()) req.addRequestHeader("User-Agent", ua)
             req.setTitle(name)
-            req.setDescription("Claudeck")
+            req.setDescription("AlternIAs")
             req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
             val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
@@ -1409,7 +1567,7 @@ class MainActivity : AppCompatActivity() {
                     onAccountsChanged()
                     rebuildChips()
                     updateInfo()
-                    if (existing.id == currentId) progress.setIndicatorColor(existing.color)
+                    if (existing.id == currentId) progress.setIndicatorColor(chrome(existing))
                 }
                 dialog.dismiss()
             }
@@ -1460,13 +1618,13 @@ class MainActivity : AppCompatActivity() {
         t.text = title
         t.textSize = 18f
         t.setTypeface(t.typeface, android.graphics.Typeface.BOLD)
-        t.setTextColor(onSurface())
+        t.setTextColor(sheetOnSurface())
         texts.addView(t)
         if (!subtitle.isNullOrBlank()) {
             val s = TextView(this)
             s.text = subtitle
             s.textSize = 13f
-            s.setTextColor(ColorUtils.setAlphaComponent(onSurface(), 150))
+            s.setTextColor(ColorUtils.setAlphaComponent(sheetOnSurface(), 150))
             texts.addView(s)
         }
         head.addView(texts)
@@ -1477,7 +1635,7 @@ class MainActivity : AppCompatActivity() {
         val tv = TextView(this)
         tv.text = text
         tv.textSize = 16f
-        tv.setTextColor(onSurface())
+        tv.setTextColor(if (sheet == null) onSurface() else sheetOnSurface())
         tv.gravity = Gravity.CENTER_VERTICAL
         tv.setPadding(dp(16), dp(14), dp(16), dp(14))
         if (icon != null) applyIcon(tv, icon, tint)
@@ -1497,24 +1655,277 @@ class MainActivity : AppCompatActivity() {
             "En descanso hasta " + DateFormat.format("EEE HH:mm", acc.limitUntil)
         } else "Disponible"
         sheetHeader(col, acc.name, listOf(acc.purpose, status).filter { it.isNotBlank() }.joinToString(" · "), acc.color)
-        sheetRow(col, sheet, "Editar nombre, propósito o color", R.drawable.ic_edit, acc.color) { showAccountDialog(acc) }
-        sheetRow(col, sheet, "Recargar", R.drawable.ic_reload, acc.color) { webViews[acc.id]?.reload() ?: select(acc.id) }
-        sheetRow(col, sheet, "Marcar límite alcanzado…", R.drawable.ic_clock, acc.color) { showLimitDialog(acc) }
-        if (acc.limitActive()) sheetRow(col, sheet, "Quitar marca de límite", R.drawable.ic_check, acc.color) { setLimit(acc, 0L) }
-        sheetRow(col, sheet, "Cerrar sesión y borrar datos", R.drawable.ic_logout, acc.color) {
+        sheetRow(col, sheet, "Editar nombre, propósito o color", R.drawable.ic_edit, chrome(acc)) { showAccountDialog(acc) }
+        sheetRow(col, sheet, "Recargar", R.drawable.ic_reload, chrome(acc)) { webViews[acc.id]?.reload() ?: select(acc.id) }
+        sheetRow(col, sheet, "Marcar límite alcanzado…", R.drawable.ic_clock, chrome(acc)) { showLimitDialog(acc) }
+        if (acc.limitActive()) sheetRow(col, sheet, "Quitar marca de límite", R.drawable.ic_check, chrome(acc)) { setLimit(acc, 0L) }
+        sheetRow(col, sheet, "Cerrar sesión y borrar datos", R.drawable.ic_logout, chrome(acc)) {
             confirm(
                 "Cerrar sesión",
                 "Se cierra la sesión de «${acc.name}» y se borran sus cookies y datos en este dispositivo."
             ) { wipeAccount(acc, remove = false) }
         }
-        sheetRow(col, sheet, "Eliminar cuenta", R.drawable.ic_trash, acc.color) {
+        sheetRow(col, sheet, "Eliminar cuenta", R.drawable.ic_trash, chrome(acc)) {
             confirm(
                 "Eliminar cuenta",
-                "Se quita «${acc.name}» de la app y se borran sus datos en este dispositivo. Tu cuenta de Claude no se toca."
+                "Se quita «${acc.name}» de la app y se borran sus datos en este dispositivo. Tu cuenta de ${store.service.label} no se toca."
             ) { wipeAccount(acc, remove = true) }
         }
         sheet.setContentView(col)
         sheet.show()
+    }
+
+    private fun showAboutDialog() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Acerca de AlternIAs")
+            .setMessage(
+                "AlternIAs organiza sesiones independientes de claude.ai y replit.com (cada uno con sus propias cuentas) para que puedas cambiar de cuenta sin mezclar sus datos.\n\n" +
+                    "Pensada y diseñada por Andrés Londero.\n\n" +
+                    "No es una aplicación oficial de Anthropic. Si el acceso con Google falla en el navegador integrado, iniciá sesión con tu correo electrónico."
+            )
+            .setPositiveButton("Listo", null)
+            .show()
+    }
+
+    // ---------------------------------------------------------------- Tutorial de primera ejecución
+
+    private fun startTutorial() {
+        if (tutorialActive || store.tutorialShown || accounts.isNotEmpty()) return
+        store.tutorialShown = true
+        tutorialActive = true
+        handler.removeCallbacks(autoHide)
+        setDockCollapsed(false, false)
+
+        val host = findViewById<FrameLayout>(android.R.id.content)
+        val overlay = TutorialOverlay(this)
+        tutorialOverlay = overlay
+        host.addView(
+            overlay,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+        showTutorialStep(0)
+    }
+
+    private fun showTutorialStep(index: Int) {
+        if (!tutorialActive) return
+        tutorialIndex = index
+        val overlay = tutorialOverlay ?: return
+        val title: String
+        val body: String
+        val target: View?
+        when (index) {
+            0 -> {
+                title = "Bienvenido a AlternIAs"
+                body = "Cada cuenta conserva su propia sesión. Cuando Claude te pida iniciar sesión, elegí tu correo electrónico y el código que te envía; «Continuar con Google» puede fallar en un navegador integrado."
+                target = emptyView
+            }
+            1 -> {
+                title = "Agregá tus cuentas"
+                body = "Tocá el + para crear una sesión independiente. El tutorial no agrega cuentas ni guarda datos de ejemplo."
+                target = chipGroup.getChildAt(chipGroup.childCount - 1)
+            }
+            2 -> {
+                title = "Cambiá y administrá sesiones"
+                body = "Elegí una cuenta tocando su círculo. Mantenelo apretado para abrir sus opciones: recargar, marcar un límite o borrar los datos de esa sesión."
+                target = chipScroll
+            }
+            3 -> {
+                title = "Ajustes"
+                body = "Abrí el cajón de ajustes para activar la burbuja, recargar la cuenta o ver Descargas. Arriba podés pasar de Claude a Replit y volver: cada uno tiene sus propias cuentas. Lo abrí para mostrarte dónde está."
+                setDockCollapsed(false, false)
+                setDrawerOpen(true)
+                target = drawer
+            }
+            else -> {
+                title = "Acerca de"
+                body = "Acerca de AlternIAs muestra qué hace la app y quién la pensó y diseñó. La opción está en este menú."
+                setDrawerOpen(true)
+                target = drawerAboutRow
+            }
+        }
+        overlay.setStep(index + 1, 5, title, body, target)
+        if (index >= 3) {
+            handler.postDelayed({ if (tutorialActive) overlay.refreshTarget(target) }, 300)
+        }
+    }
+
+    private fun advanceTutorial() {
+        if (tutorialIndex >= 4) finishTutorial()
+        else showTutorialStep(tutorialIndex + 1)
+    }
+
+    private fun finishTutorial() {
+        if (!tutorialActive) return
+        tutorialActive = false
+        store.tutorialShown = true
+        handler.removeCallbacks(autoHide)
+        val overlay = tutorialOverlay
+        tutorialOverlay = null
+        (overlay?.parent as? ViewGroup)?.removeView(overlay)
+        setDrawerOpen(false)
+        scheduleAutoHide()
+    }
+
+    private inner class TutorialOverlay(context: Context) : FrameLayout(context) {
+        private val dimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(184, 17, 14, 12)
+        }
+        private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = dp(2).toFloat()
+        }
+        private val card: MaterialCardView
+        private val progress: TextView
+        private val heading: TextView
+        private val message: TextView
+        private val nextButton: MaterialButton
+        private var target: View? = null
+
+        init {
+            setWillNotDraw(false)
+            isClickable = true
+            isFocusable = true
+
+            card = MaterialCardView(this@MainActivity).apply {
+                radius = dp(22).toFloat()
+                cardElevation = dp(14).toFloat()
+                strokeWidth = dp(1)
+                strokeColor = ColorUtils.setAlphaComponent(onSurface(), 38)
+                setCardBackgroundColor(store.service.surface)
+                useCompatPadding = true
+            }
+            val content = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(20), dp(18), dp(20), dp(16))
+            }
+            progress = TextView(this@MainActivity).apply {
+                textSize = 11f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setTextColor(accent())
+            }
+            content.addView(progress)
+            heading = TextView(this@MainActivity).apply {
+                textSize = 20f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setTextColor(onSurface())
+                setPadding(0, dp(6), 0, dp(6))
+            }
+            content.addView(heading)
+            message = TextView(this@MainActivity).apply {
+                textSize = 14.5f
+                setTextColor(onSurface())
+                setLineSpacing(dp(3).toFloat(), 1f)
+            }
+            content.addView(message)
+
+            val actions = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(14), 0, 0)
+            }
+            val skip = TextView(this@MainActivity).apply {
+                text = "Saltar tutorial"
+                textSize = 13f
+                setTextColor(ColorUtils.setAlphaComponent(onSurface(), 190))
+                gravity = Gravity.CENTER
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+                setBackgroundResource(selectableBg())
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { finishTutorial() }
+            }
+            actions.addView(skip)
+            val spacer = View(this@MainActivity)
+            actions.addView(spacer, LinearLayout.LayoutParams(0, 1, 1f))
+            nextButton = MaterialButton(this@MainActivity).apply {
+                text = "Siguiente"
+                setOnClickListener { advanceTutorial() }
+            }
+            actions.addView(nextButton)
+            content.addView(actions)
+            card.addView(content)
+
+            val cardWidth = minOf(dp(420), resources.displayMetrics.widthPixels - dp(32))
+            addView(
+                card,
+                FrameLayout.LayoutParams(cardWidth, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                    leftMargin = dp(16)
+                    rightMargin = dp(16)
+                }
+            )
+        }
+
+        fun setStep(number: Int, total: Int, title: String, body: String, focus: View?) {
+            progress.text = "TUTORIAL · $number DE $total"
+            heading.text = title
+            message.text = body
+            nextButton.text = if (number == total) "Terminar" else "Siguiente"
+            refreshTarget(focus)
+        }
+
+        fun refreshTarget(focus: View?) {
+            target = focus?.takeIf { it.isShown }
+            invalidate()
+            post { positionCard() }
+        }
+
+        private fun focusRect(): RectF? {
+            val view = target ?: return null
+            if (!view.isShown || width == 0 || height == 0) return null
+            val targetPos = IntArray(2)
+            val overlayPos = IntArray(2)
+            view.getLocationOnScreen(targetPos)
+            getLocationOnScreen(overlayPos)
+            val pad = dp(7).toFloat()
+            val r = RectF(
+                targetPos[0] - overlayPos[0] - pad,
+                targetPos[1] - overlayPos[1] - pad,
+                targetPos[0] - overlayPos[0] + view.width + pad,
+                targetPos[1] - overlayPos[1] + view.height + pad
+            )
+            return r.takeIf { it.right > 0 && it.bottom > 0 && it.left < width && it.top < height }
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val r = focusRect()
+            if (r == null) {
+                canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), dimPaint)
+            } else {
+                canvas.drawRect(0f, 0f, width.toFloat(), r.top, dimPaint)
+                canvas.drawRect(0f, r.bottom, width.toFloat(), height.toFloat(), dimPaint)
+                canvas.drawRect(0f, r.top, r.left, r.bottom, dimPaint)
+                canvas.drawRect(r.right, r.top, width.toFloat(), r.bottom, dimPaint)
+                outlinePaint.color = accent()
+                canvas.drawRoundRect(r, dp(14).toFloat(), dp(14).toFloat(), outlinePaint)
+            }
+        }
+
+        private fun positionCard() {
+            if (width == 0 || height == 0) return
+            val lp = card.layoutParams as? FrameLayout.LayoutParams ?: return
+            val maxWidth = (width - dp(32)).coerceAtLeast(dp(240))
+            lp.width = minOf(dp(420), maxWidth)
+            card.layoutParams = lp
+            card.measure(
+                MeasureSpec.makeMeasureSpec(lp.width, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(height, MeasureSpec.AT_MOST)
+            )
+            val cardHeight = card.measuredHeight
+            val focus = focusRect()
+            val below = focus?.bottom?.plus(dp(16)) ?: dp(24).toFloat()
+            val top = if (below + cardHeight <= height - dp(16)) {
+                below
+            } else {
+                maxOf(dp(16).toFloat(), (focus?.top ?: height.toFloat()) - cardHeight - dp(16))
+            }
+            lp.topMargin = top.toInt()
+            card.layoutParams = lp
+        }
     }
 
     private fun showMoreMenu() = setDrawerOpen(!drawerOpen)
@@ -1542,7 +1953,7 @@ class MainActivity : AppCompatActivity() {
                 .setTitle("Permiso necesario")
                 .setMessage(
                     "Para mostrar la burbuja sobre otras apps, activá «Mostrar sobre otras apps» " +
-                        "para Claudeck en la pantalla que se abre y volvé."
+                        "para AlternIAs en la pantalla que se abre y volvé."
                 )
                 .setPositiveButton("Abrir ajustes") { _, _ ->
                     pendingBubble = true
@@ -1597,9 +2008,25 @@ class MainActivity : AppCompatActivity() {
 
     // ---------------------------------------------------------------- Límites de uso
 
+    /**
+     * Opciones según la cuota de cada IA. Claude: ventana de 5 h y tope semanal. Replit: Modo gratis
+     * (se renueva cada 5 h y tiene tope semanal), créditos diarios del plan Starter y créditos
+     * mensuales que se renuevan al empezar cada ciclo de facturación.
+     */
     private fun showLimitDialog(acc: Account) {
         val hour = 60 * 60 * 1000L
-        val items = arrayOf("Dentro de 5 horas", "Dentro de 24 horas", "Dentro de 7 días", "A una hora exacta…")
+        val replit = store.service == Service.REPLIT
+        val items = if (replit) {
+            arrayOf(
+                "Dentro de 5 horas (Modo gratis)",
+                "Dentro de 24 horas (créditos diarios)",
+                "Dentro de 7 días (tope semanal)",
+                "En la renovación mensual…",
+                "A una hora exacta…"
+            )
+        } else {
+            arrayOf("Dentro de 5 horas", "Dentro de 24 horas", "Dentro de 7 días", "A una hora exacta…")
+        }
         MaterialAlertDialogBuilder(this)
             .setTitle("¿Cuándo se reinicia el límite?")
             .setItems(items) { _, which ->
@@ -1608,10 +2035,32 @@ class MainActivity : AppCompatActivity() {
                     0 -> setLimit(acc, now + 5 * hour)
                     1 -> setLimit(acc, now + 24 * hour)
                     2 -> setLimit(acc, now + 7 * 24 * hour)
-                    3 -> pickExactTime(acc)
+                    3 -> if (replit) pickRenewalDate(acc) else pickExactTime(acc)
+                    4 -> pickExactTime(acc)
                 }
             }
             .show()
+    }
+
+    /** Replit: día en que se renuevan los créditos del mes (empieza el ciclo de facturación, 00:00). */
+    private fun pickRenewalDate(acc: Account) {
+        val picker = MaterialDatePicker.Builder.datePicker()
+            .setTitleText("Día de renovación mensual")
+            .setCalendarConstraints(
+                CalendarConstraints.Builder().setValidator(DateValidatorPointForward.now()).build()
+            )
+            .build()
+        picker.addOnPositiveButtonClickListener { utcMillis ->
+            // El selector devuelve la fecha en UTC: se toma ese día y se pasa a las 00:00 locales.
+            val utc = Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).apply { timeInMillis = utcMillis }
+            val target = Calendar.getInstance().apply {
+                set(utc.get(Calendar.YEAR), utc.get(Calendar.MONTH), utc.get(Calendar.DAY_OF_MONTH), 0, 0, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            if (target.timeInMillis <= System.currentTimeMillis()) target.add(Calendar.DAY_OF_YEAR, 1)
+            setLimit(acc, target.timeInMillis)
+        }
+        picker.show(supportFragmentManager, "limit_date")
     }
 
     private fun pickExactTime(acc: Account) {
