@@ -273,19 +273,31 @@ body {
   transform: translateX(105%);
 }
 #app[data-rail="right"] #drawer.open { transform: none; }
-/* Barra abajo: el cajón sube desde atrás de la barra, pegado al lado de Ajustes */
+/* Barra abajo: cajón inferior de lado a lado, que sube desde atrás de la barra, con las opciones en columnas */
 #app[data-rail="bottom"] #drawer {
-  left: auto;
+  left: 0;
   right: 0;
   top: auto;
   bottom: var(--rail-h);
+  width: auto;
   max-height: calc(100vh - var(--chrome-h) - var(--topbar-h) - var(--rail-h));
+  padding: 14px 24px 16px;
   border-right: 0;
   border-top: 3px solid var(--accent);
-  border-left: 3px solid var(--accent);
   transform: translateY(105%);
 }
 #app[data-rail="bottom"] #drawer.open { transform: none; }
+#app[data-rail="bottom"] .drawer-head { max-width: 420px; margin: 0 auto; }
+#app[data-rail="bottom"] .dbody {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 28px;
+  align-items: start;
+}
+#app[data-rail="bottom"] .drawer-hint { text-align: center; padding-top: 8px; }
+@media (max-width: 900px) {
+  #app[data-rail="bottom"] .dbody { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 /* Captura de la página detrás del cajón (con una sombra suave para que destaque el cajón) */
 #snap {

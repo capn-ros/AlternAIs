@@ -43,6 +43,8 @@
         <svg viewBox="0 0 120 120" width="44" height="44" aria-hidden="true"><rect width="120" height="120" rx="28" fill="#1C1917" /><path d="M60 28A32 32 0 0 0 60 92Z" fill="#D97757" transform="translate(-1 5)" /><path d="M60 28A32 32 0 0 1 60 92Z" fill="#F5EFE6" transform="translate(1 -5)" /></svg>
         <button id="svc-replit" class="svc-tab" role="tab" type="button">Replit</button>
       </div>
+      <div class="dbody">
+      <section class="dgroup">
       <div class="drawer-cap">Ajustes</div>
       <button id="d-reload" class="drow">
         <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M20,12a8,8 0 1,1 -2.5,-5.8 M20,4v5h-5" /></svg>
@@ -56,6 +58,13 @@
         <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12,5v14 M5,12h14" /></svg>
         <span>Agregar cuenta</span>
       </button>
+      <button id="d-about" class="drow">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5m0-8h.01" /></svg>
+        <span>Acerca de AlternAIs</span>
+      </button>
+      </section>
+      <section class="dgroup">
+      <div class="drawer-cap">Cuentas</div>
       <button id="d-export" class="drow">
         <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12,16V5 M7.5,9l4.5,-4.5l4.5,4.5 M5,20h14" /></svg>
         <span>Exportar cuentas</span>
@@ -64,16 +73,14 @@
         <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12,4v11 M7.5,11l4.5,4.5l4.5,-4.5 M5,20h14" /></svg>
         <span>Importar cuentas</span>
       </button>
-      <button id="d-about" class="drow">
-        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5m0-8h.01" /></svg>
-        <span>Acerca de AlternAIs</span>
-      </button>
-      <div class="drawer-cap">Barra de cuentas</div>
+      <div class="drow-label">Barra de cuentas</div>
       <div class="seg" id="seg-rail" role="group" aria-label="Posición de la barra de cuentas">
         <button type="button" data-rail="left">Izquierda</button>
         <button type="button" data-rail="right">Derecha</button>
         <button type="button" data-rail="bottom">Abajo</button>
       </div>
+      </section>
+      <section class="dgroup">
       <div class="drawer-cap">Inicio y cierre</div>
       <button id="d-login" class="drow" role="switch" aria-checked="false" type="button">
         <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12,3v8 M6.4,6.9a8,8 0 1,0 11.2,0" /></svg>
@@ -84,6 +91,8 @@
       <div class="seg" id="seg-close" role="group" aria-label="Al cerrar la ventana">
         <button type="button" data-close="exit">Cerrar la app</button>
         <button type="button" data-close="tray">Bandeja del sistema</button>
+      </div>
+      </section>
       </div>
       <p class="drawer-hint">Ctrl+1…9 cambia de cuenta · Ctrl+Tab pasa a la siguiente · Ctrl+N agrega · Ctrl+R recarga</p>
     </aside>
