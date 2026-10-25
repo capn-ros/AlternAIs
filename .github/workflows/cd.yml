@@ -4,7 +4,7 @@ name: Compilar desde cd.zip
 # 1) borra el contenido del repo (menos .git, cd.zip y .github), descomprime cd.zip
 #    y COMMITEA los archivos descomprimidos en el repo;
 # 2) compila Android y Windows desde lo que quedó en el repo.
-# Los resultados (APK y .exe) quedan en Artifacts.
+# Los resultados (solo el APK y el instalador .exe de Windows) quedan en Artifacts.
 # Ojo: GitHub no deja que Actions modifique .github/workflows, así que los workflows
 # del zip se ignoran: los que valen son los que ya están en el repo.
 on:
@@ -108,10 +108,10 @@ jobs:
         working-directory: windows
         run: npm install
 
-      - name: Compilar app y versión portable
+      - name: Compilar app (solo la carpeta, sin portable)
         shell: bash
         working-directory: windows
-        run: npx electron-builder --win dir portable --x64 --publish never
+        run: npx electron-builder --win dir --x64 --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
@@ -129,7 +129,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Claudeck-Windows
-          path: windows/dist/*.exe
+          path: windows/dist/AlternAIs-Setup-*.exe
           if-no-files-found: error
           retention-days: 7
 
