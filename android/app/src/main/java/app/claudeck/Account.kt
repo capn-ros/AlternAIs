@@ -57,7 +57,9 @@ data class Account(
     /** Momento (epoch ms) en que se marcó el límite; sirve para calcular qué parte del descanso ya pasó. 0 = no se sabe. */
     var limitStart: Long = 0L,
     /** Última pantalla de Claude visitada; solo se restaura si sigue siendo un URL HTTPS de claude.ai. */
-    var lastUrl: String = ""
+    var lastUrl: String = "",
+    /** Correo con el que se inicia sesión (opcional, sin contraseña); sirve para recordarlo y exportarlo. */
+    var email: String = ""
 ) {
     /** Cada cuenta usa un perfil de WebView propio: cookies y datos totalmente separados. */
     val profileName: String get() = "acc_$id"
@@ -103,8 +105,10 @@ class AccountStore(context: Context) {
     private fun accountsKey(s: Service) = if (s == Service.CLAUDE) "accounts" else "accounts_${s.key}"
     private fun selectedKey(s: Service) = if (s == Service.CLAUDE) "selected" else "selected_${s.key}"
 
-    fun load(): List<Account> {
-        val svc = service
+    fun load(): List<Account> = loadFor(service)
+
+    /** Cuentas de un servicio concreto (sirve para exportar las dos mitades). */
+    fun loadFor(svc: Service): List<Account> {
         val raw = prefs.getString(accountsKey(svc), null) ?: return emptyList()
         return try {
             val arr = JSONArray(raw)
@@ -117,7 +121,8 @@ class AccountStore(context: Context) {
                     color = o.getInt("color"),
                     limitUntil = o.optLong("limitUntil", 0L),
                     limitStart = o.optLong("limitStart", 0L),
-                    lastUrl = urlForRestore(svc, o.optString("lastUrl", "")) ?: ""
+                    lastUrl = urlForRestore(svc, o.optString("lastUrl", "")) ?: "",
+                    email = o.optString("email", "")
                 )
             }
         } catch (e: Exception) {
@@ -125,8 +130,9 @@ class AccountStore(context: Context) {
         }
     }
 
-    fun save(list: List<Account>) {
-        val svc = service
+    fun save(list: List<Account>) = saveFor(service, list)
+
+    fun saveFor(svc: Service, list: List<Account>) {
         val arr = JSONArray()
         list.forEach { a ->
             arr.put(
@@ -138,9 +144,16 @@ class AccountStore(context: Context) {
                     .put("limitUntil", a.limitUntil)
                     .put("limitStart", a.limitStart)
                     .put("lastUrl", urlForRestore(svc, a.lastUrl) ?: "")
+                    .put("email", a.email)
             )
         }
         prefs.edit().putString(accountsKey(svc), arr.toString()).apply()
+    }
+
+    fun selectedIdFor(svc: Service): String? = prefs.getString(selectedKey(svc), null)
+
+    fun setSelectedFor(svc: Service, id: String?) {
+        prefs.edit().putString(selectedKey(svc), id).apply()
     }
 
     var selectedId: String?

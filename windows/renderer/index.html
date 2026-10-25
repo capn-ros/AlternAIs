@@ -56,6 +56,14 @@
         <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12,5v14 M5,12h14" /></svg>
         <span>Agregar cuenta</span>
       </button>
+      <button id="d-export" class="drow">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12,16V5 M7.5,9l4.5,-4.5l4.5,4.5 M5,20h14" /></svg>
+        <span>Exportar cuentas</span>
+      </button>
+      <button id="d-import" class="drow">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12,4v11 M7.5,11l4.5,4.5l4.5,-4.5 M5,20h14" /></svg>
+        <span>Importar cuentas</span>
+      </button>
       <button id="d-about" class="drow">
         <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5m0-8h.01" /></svg>
         <span>Acerca de AlternAIs</span>
@@ -119,6 +127,9 @@
       <label>¿Para qué la usás? <span class="opt">(opcional)</span>
         <input id="acc-purpose" type="text" maxlength="60" placeholder="Ej. Código y revisiones" autocomplete="off" />
       </label>
+      <label>Correo de la cuenta <span class="opt">(opcional, sin contraseña)</span>
+        <input id="acc-email" type="text" maxlength="80" placeholder="Ej. nombre@correo.com" autocomplete="off" />
+      </label>
       <div class="field">
         <span class="lbl">Color</span>
         <div id="swatches" class="swatches"></div>
@@ -161,6 +172,14 @@
     </div>
   </dialog>
 
+  <dialog id="dlg-msg">
+    <h2 id="msg-title"></h2>
+    <p id="msg-text" class="sub"></p>
+    <div class="buttons">
+      <button type="button" id="msg-close" class="primary">Entendido</button>
+    </div>
+  </dialog>
+
   <dialog id="dlg-about">
     <h2>Acerca de AlternAIs</h2>
     <p class="sub">AlternAIs organiza varias sesiones independientes de claude.ai y replit.com (cada uno con sus propias cuentas) para que puedas cambiar de cuenta sin mezclar sus datos.</p>
@@ -171,6 +190,11 @@
       <button type="button" id="about-close" class="primary">Listo</button>
     </div>
   </dialog>
+
+  <!-- Captura de la página mientras el cajón está abierto: así el cajón se dibuja encima con transparencia y desenfoque -->
+  <div id="snap" hidden>
+    <img id="snap-img" alt="" hidden />
+  </div>
 
   <div id="tour" hidden aria-live="polite">
     <div id="tour-focus" hidden aria-hidden="true"></div>

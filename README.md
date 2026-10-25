@@ -25,6 +25,7 @@ El APK usa siempre la misma firma (incluida en `android/app/debug.keystore`), as
 - **Una cuenta = una sesión aislada.** Android usa perfiles de WebView; Windows usa una partición persistente por cuenta. Las sesiones quedan guardadas al cerrar la app y, al volver a abrirla, cada cuenta retoma su última pantalla de Claude.
 - **Nombre, propósito y color** por cuenta (ej. "Trabajo · Código y revisiones").
 - **Descanso por límite de uso:** cuando una cuenta llega a su límite, la marcás (en 5 h, 24 h, 7 días o a una hora exacta; en Replit, además, el día de renovación mensual, y las opciones siguen sus cuotas: Modo gratis cada 5 h con tope semanal, créditos diarios y créditos mensuales). Se ve en descanso con la cuenta regresiva y la app te avisa cuando pasa.
+- **Exportar e importar cuentas** (Ajustes): guardás un archivo con tus cuentas (nombre, propósito, color y límites) y lo importás en otro dispositivo, Windows ↔ Android. **No copia las sesiones**: en el dispositivo nuevo hay que iniciar sesión en cada cuenta.
 - **Cerrar sesión y borrar datos** o **eliminar** una cuenta, solo en el dispositivo.
 - **Tutorial de bienvenida** en el primer inicio, con opción para saltearlo. Recomienda iniciar sesión en Claude con el correo electrónico; «Continuar con Google» puede fallar en navegadores integrados.
 - En **Ajustes → Acerca de AlternAIs** encontrás la información de la app. Pensada y diseñada por **Andrés Londero**.

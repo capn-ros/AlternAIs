@@ -10,6 +10,7 @@ const {
   Menu,
   Tray,
   nativeImage,
+  dialog,
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -90,6 +91,7 @@ function sanitizeAccounts(list, svc) {
       limitUntil: Number(a.limitUntil) > 0 ? Number(a.limitUntil) : 0,
       limitStart: Number(a.limitStart) > 0 ? Number(a.limitStart) : 0,
       lastUrl: cleanUrl(a.lastUrl, svc) || '',
+      email: cleanEmail(a.email),
     }));
 }
 
@@ -146,6 +148,10 @@ function saveState() {
   }
 }
 
+function cleanEmail(v) {
+  const t = cleanText(v, 80);
+  return /^[^\s@]+@[^\s@]+$/.test(t) ? t : '';
+}
 function cleanText(v, max) {
   return typeof v === 'string' ? v.trim().slice(0, max) : '';
 }
@@ -245,10 +251,6 @@ function createView(acc) {
     return { action: 'deny' };
   });
   wc.on('before-input-event', handleShortcut);
-  // Tocar la página con el cajón abierto lo cierra (las vistas se dibujan sobre el HTML y no dejan pasar el clic).
-  wc.on('focus', () => {
-    if (drawerOpen && !programmaticFocus && Date.now() - drawerOpenedAt > 400) closeDrawerFromMain();
-  });
   const svc = SERVICES[serviceOf(acc.id)];
   wc.loadURL(cleanUrl(acc.lastUrl, serviceOf(acc.id)) || svc.startUrl);
   view.setVisible(false);
@@ -275,7 +277,7 @@ function layout() {
   const [w, h] = win.getContentSize();
   // La barra de cuentas puede ir a la izquierda, a la derecha o abajo; con el cajón abierto la
   // página deja ese lugar libre (del lado de la barra).
-  const drawer = drawerOpen ? DRAWER_W : 0;
+  const drawer = 0; // el cajón se dibuja encima de la página: ya no la corre
   const pos = state.settings.railPos;
   let x = 0;
   let width = w;
@@ -295,9 +297,9 @@ function layout() {
 }
 
 function showCurrent() {
-  for (const [id, v] of views) v.setVisible(!modalOpen && id === state.selectedId);
+  for (const [id, v] of views) v.setVisible(!modalOpen && !drawerOpen && id === state.selectedId);
   const cur = views.get(state.selectedId);
-  if (cur && !modalOpen) {
+  if (cur && !modalOpen && !drawerOpen) {
     programmaticFocus = true;
     cur.webContents.focus();
     setTimeout(() => {
@@ -318,6 +320,7 @@ function selectAccount(id) {
   const acc = find(id);
   if (!acc) return;
   state.selectedId = id;
+  if (drawerOpen) closeDrawerFromMain(); // elegir una cuenta cierra el cajón
   if (!views.has(id)) createView(acc);
   saveState();
   layout();
@@ -409,6 +412,7 @@ function registerIpc() {
       name: cleanText(data && data.name, 24) || 'Cuenta',
       purpose: cleanText(data && data.purpose, 60),
       color: cleanColor(data && data.color),
+      email: cleanEmail(data && data.email),
       limitUntil: 0,
       limitStart: 0,
     };
@@ -423,6 +427,7 @@ function registerIpc() {
     if (patch.name !== undefined) acc.name = cleanText(patch.name, 24) || acc.name;
     if (patch.purpose !== undefined) acc.purpose = cleanText(patch.purpose, 60);
     if (patch.color !== undefined) acc.color = cleanColor(patch.color);
+    if (patch.email !== undefined) acc.email = cleanEmail(patch.email);
     saveState();
     showCurrent();
     broadcast();
@@ -499,10 +504,30 @@ function registerIpc() {
     showCurrent();
   });
 
-  ipcMain.handle('ui:drawer', (_e, open) => {
-    drawerOpen = !!open;
-    if (drawerOpen) drawerOpenedAt = Date.now();
-    layout();
+  // Con el cajón abierto la página se reemplaza por una captura (las vistas se dibujan sobre el HTML y
+  // no se pueden mezclar con él), así el cajón se ve encima con transparencia y desenfoque.
+  ipcMain.handle('ui:drawer', async (_e, open) => {
+    if (!open) {
+      drawerOpen = false;
+      showCurrent();
+      return null;
+    }
+    let snap = null;
+    const view = views.get(state.selectedId);
+    if (view && !modalOpen) {
+      try {
+        const img = await view.webContents.capturePage();
+        if (!img.isEmpty()) {
+          const b = view.getBounds();
+          snap = { url: 'data:image/jpeg;base64,' + img.toJPEG(82).toString('base64'), x: b.x, y: b.y, width: b.width, height: b.height };
+        }
+      } catch (_) {
+        snap = null;
+      }
+    }
+    drawerOpen = true;
+    showCurrent();
+    return snap;
   });
 
   ipcMain.handle('settings:set', (_e, patch) => {
@@ -515,6 +540,102 @@ function registerIpc() {
     saveState();
     layout();
     broadcast();
+  });
+
+  // Exportar / importar las cuentas (sin sesiones) como .json, para llevarlas a Android u otra PC.
+  // El archivo lleva nombre, propósito, color y marcas de límite; NO cookies ni contraseñas.
+  ipcMain.handle('data:export', async () => {
+    if (!win) return { ok: false };
+    const r = await dialog.showSaveDialog(win, {
+      title: 'Exportar cuentas',
+      defaultPath: path.join(app.getPath('documents'), 'AlternAIs-cuentas.json'),
+      filters: [{ name: 'Archivo JSON', extensions: ['json'] }],
+    });
+    if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+    syncBucket();
+    const services = {};
+    let count = 0;
+    for (const key of Object.keys(SERVICES)) {
+      services[key] = {
+        accounts: buckets[key].accounts.map((a) => {
+          count += 1;
+          return {
+            name: a.name,
+            purpose: a.purpose,
+            email: a.email || '',
+            color: a.color,
+            limitUntil: a.limitUntil,
+            limitStart: a.limitStart,
+            lastUrl: a.lastUrl || '',
+            selected: a.id === buckets[key].selectedId,
+          };
+        }),
+      };
+    }
+    try {
+      fs.writeFileSync(r.filePath, JSON.stringify({ app: 'AlternAIs', version: 1, exportedAt: Date.now(), services }, null, 2));
+    } catch (_) {
+      return { ok: false };
+    }
+    return { ok: true, count };
+  });
+
+  ipcMain.handle('data:import', async () => {
+    if (!win) return { ok: false };
+    const r = await dialog.showOpenDialog(win, {
+      title: 'Importar cuentas',
+      properties: ['openFile'],
+      filters: [{ name: 'Archivo JSON', extensions: ['json'] }],
+    });
+    if (r.canceled || !r.filePaths.length) return { ok: false, canceled: true };
+    let services;
+    try {
+      const raw = fs.readFileSync(r.filePaths[0], 'utf8');
+      if (raw.length > 1000000) return { ok: false };
+      services = JSON.parse(raw).services;
+      if (!services || typeof services !== 'object') return { ok: false };
+    } catch (_) {
+      return { ok: false };
+    }
+    syncBucket();
+    const now = Date.now();
+    let added = 0;
+    let skipped = 0;
+    for (const key of Object.keys(SERVICES)) {
+      const list = services[key] && Array.isArray(services[key].accounts) ? services[key].accounts.slice(0, 50) : [];
+      const bucket = buckets[key];
+      for (const a of list) {
+        const name = cleanText(a && a.name, 24);
+        if (!name || bucket.accounts.some((x) => x.name.toLowerCase() === name.toLowerCase())) {
+          skipped += 1;
+          continue;
+        }
+        const active = Number(a.limitUntil) > now;
+        const imported = {
+          id: crypto.randomBytes(6).toString('hex'),
+          name,
+          purpose: cleanText(a.purpose, 60),
+          email: cleanEmail(a.email),
+          color: cleanColor(a.color),
+          limitUntil: active ? Number(a.limitUntil) : 0,
+          limitStart: active && Number(a.limitStart) > 0 ? Number(a.limitStart) : 0,
+          lastUrl: cleanUrl(a.lastUrl, key) || '',
+        };
+        // Si la mitad no tenía cuenta activa, queda activa la marcada en el archivo (o la primera).
+        const hadNone = !bucket.accounts.length;
+        bucket.accounts.push(imported);
+        if (!bucket.selectedId || (hadNone && a.selected === true)) bucket.selectedId = imported.id;
+        added += 1;
+      }
+    }
+    state.accounts = buckets[state.service].accounts;
+    state.selectedId = buckets[state.service].selectedId;
+    if (state.selectedId) selectAccount(state.selectedId);
+    else {
+      saveState();
+      broadcast();
+    }
+    return { ok: true, added, skipped };
   });
 
   ipcMain.handle('app:downloads', () => shell.openPath(app.getPath('downloads')));

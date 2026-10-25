@@ -91,6 +91,7 @@ import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.timepicker.MaterialTimePicker
 import com.google.android.material.timepicker.TimeFormat
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.Calendar
@@ -208,6 +209,14 @@ class MainActivity : AppCompatActivity() {
             pendingFileCallback?.onReceiveValue(uris)
             pendingFileCallback = null
         }
+
+    // Exportar / importar las cuentas (sin sesiones) como archivo .json
+    @Suppress("DEPRECATION")
+    private val exportLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument()) { uri -> if (uri != null) writeExport(uri) }
+
+    private val importLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) readImport(uri) }
 
     private val notifLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -720,6 +729,14 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Exception) {
                 snack("No se pudo abrir Descargas")
             }
+        })
+        drawerIcons.add(sheetRow(d, null, "Exportar cuentas", R.drawable.ic_download) {
+            setDrawerOpen(false)
+            exportLauncher.launch("AlternAIs-cuentas.json")
+        })
+        drawerIcons.add(sheetRow(d, null, "Importar cuentas", R.drawable.ic_upload) {
+            setDrawerOpen(false)
+            importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
         })
         drawerAboutRow = sheetRow(d, null, "Acerca de AlternAIs", R.drawable.ic_info) {
             setDrawerOpen(false)
@@ -1514,10 +1531,12 @@ class MainActivity : AppCompatActivity() {
         val v = layoutInflater.inflate(R.layout.dialog_account, null)
         val inName = v.findViewById<TextInputEditText>(R.id.inputName)
         val inPurpose = v.findViewById<TextInputEditText>(R.id.inputPurpose)
+        val inEmail = v.findViewById<TextInputEditText>(R.id.inputEmail)
         val row = v.findViewById<LinearLayout>(R.id.colorRow)
         var color = existing?.color ?: PALETTE[accounts.size % PALETTE.size]
         inName.setText(existing?.name ?: "")
         inPurpose.setText(existing?.purpose ?: "")
+        inEmail.setText(existing?.email ?: "")
 
         val dots = mutableListOf<Pair<Int, View>>()
         fun paint() {
@@ -1552,8 +1571,9 @@ class MainActivity : AppCompatActivity() {
                     return@setOnClickListener
                 }
                 val purpose = inPurpose.text?.toString()?.trim().orEmpty()
+                val email = cleanEmail(inEmail.text?.toString())
                 if (existing == null) {
-                    val acc = Account(Account.newId(), name, purpose, color)
+                    val acc = Account(Account.newId(), name, purpose, color, email = email)
                     accounts.add(acc)
                     onAccountsChanged()
                     rebuildChips()
@@ -1563,6 +1583,7 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     existing.name = name
                     existing.purpose = purpose
+                    existing.email = email
                     existing.color = color
                     onAccountsChanged()
                     rebuildChips()
@@ -1573,6 +1594,11 @@ class MainActivity : AppCompatActivity() {
             }
         }
         dialog.show()
+    }
+
+    private fun cleanEmail(raw: String?): String {
+        val t = raw?.trim().orEmpty().take(80)
+        return if (Regex("^[^\\s@]+@[^\\s@]+$").matches(t)) t else ""
     }
 
     /** Al tener la segunda cuenta se sugiere (una sola vez) la burbuja flotante. */
@@ -1654,7 +1680,7 @@ class MainActivity : AppCompatActivity() {
         val status = if (acc.limitActive()) {
             "En descanso hasta " + DateFormat.format("EEE HH:mm", acc.limitUntil)
         } else "Disponible"
-        sheetHeader(col, acc.name, listOf(acc.purpose, status).filter { it.isNotBlank() }.joinToString(" · "), acc.color)
+        sheetHeader(col, acc.name, listOf(acc.purpose, acc.email, status).filter { it.isNotBlank() }.joinToString(" · "), acc.color)
         sheetRow(col, sheet, "Editar nombre, propósito o color", R.drawable.ic_edit, chrome(acc)) { showAccountDialog(acc) }
         sheetRow(col, sheet, "Recargar", R.drawable.ic_reload, chrome(acc)) { webViews[acc.id]?.reload() ?: select(acc.id) }
         sheetRow(col, sheet, "Marcar límite alcanzado…", R.drawable.ic_clock, chrome(acc)) { showLimitDialog(acc) }
@@ -2003,6 +2029,108 @@ class MainActivity : AppCompatActivity() {
             }
             ShortcutManagerCompat.setDynamicShortcuts(this, list)
         } catch (_: Exception) {
+        }
+    }
+
+    // ---------------------------------------------------------------- Exportar / importar cuentas
+
+    /**
+     * El archivo lleva solo nombre, propósito, color y marcas de límite de cada cuenta (Claude y
+     * Replit). NO lleva sesiones ni contraseñas: al importar hay que iniciar sesión en cada cuenta.
+     */
+    private fun writeExport(uri: Uri) {
+        try {
+            val root = JSONObject().put("app", "AlternAIs").put("version", 1)
+                .put("exportedAt", System.currentTimeMillis())
+            val services = JSONObject()
+            var total = 0
+            Service.values().forEach { svc ->
+                val arr = JSONArray()
+                store.loadFor(svc).forEach { a ->
+                    total++
+                    arr.put(
+                        JSONObject().put("name", a.name).put("purpose", a.purpose).put("email", a.email)
+                            .put("color", String.format("#%06X", a.color and 0xFFFFFF))
+                            .put("limitUntil", a.limitUntil).put("limitStart", a.limitStart)
+                            .put("lastUrl", urlForRestore(svc, a.lastUrl) ?: "")
+                            .put("selected", a.id == store.selectedIdFor(svc))
+                    )
+                }
+                services.put(svc.key, JSONObject().put("accounts", arr))
+            }
+            root.put("services", services)
+            contentResolver.openOutputStream(uri, "wt")?.use { it.write(root.toString(2).toByteArray()) }
+                ?: throw IllegalStateException("sin salida")
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Cuentas exportadas")
+                .setMessage("Se guardaron $total cuentas. El archivo no incluye las sesiones: al importarlo en otro dispositivo vas a tener que iniciar sesión en cada cuenta.")
+                .setPositiveButton("Entendido", null)
+                .show()
+        } catch (e: Exception) {
+            snack("No se pudo exportar")
+        }
+    }
+
+    private fun readImport(uri: Uri) {
+        try {
+            val text = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                ?.takeIf { it.size <= 1_000_000 }?.toString(Charsets.UTF_8)
+                ?: throw IllegalStateException("archivo vacío o muy grande")
+            val services = JSONObject(text).getJSONObject("services")
+            val now = System.currentTimeMillis()
+            var added = 0
+            var skipped = 0
+            Service.values().forEach { svc ->
+                val arr = services.optJSONObject(svc.key)?.optJSONArray("accounts") ?: return@forEach
+                val list = store.loadFor(svc).toMutableList()
+                for (i in 0 until minOf(arr.length(), 50)) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val name = o.optString("name").trim().take(24)
+                    if (name.isEmpty() || list.any { it.name.equals(name, ignoreCase = true) }) {
+                        skipped++
+                        continue
+                    }
+                    val color = try {
+                        Color.parseColor(o.optString("color"))
+                    } catch (_: Exception) {
+                        PALETTE[list.size % PALETTE.size]
+                    }
+                    val until = o.optLong("limitUntil", 0L)
+                    val active = until > now
+                    val imported = Account(
+                        id = Account.newId(), name = name,
+                        purpose = o.optString("purpose").trim().take(60), color = color,
+                        limitUntil = if (active) until else 0L,
+                        limitStart = if (active) o.optLong("limitStart", 0L) else 0L,
+                        lastUrl = urlForRestore(svc, o.optString("lastUrl")) ?: "",
+                        email = cleanEmail(o.optString("email"))
+                    )
+                    // Si la mitad no tenía cuenta activa, queda activa la que estaba marcada en el archivo.
+                    if (store.selectedIdFor(svc) == null && (o.optBoolean("selected") || list.isEmpty())) {
+                        store.setSelectedFor(svc, imported.id)
+                    }
+                    list.add(imported)
+                    added++
+                }
+                store.saveFor(svc, list)
+            }
+            accounts.clear()
+            accounts.addAll(store.load())
+            rebuildChips()
+            updateEmptyState()
+            updateShortcuts()
+            BubbleService.refresh()
+            if (currentId == null && accounts.isNotEmpty()) select(accounts.first().id)
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Cuentas importadas")
+                .setMessage(
+                    "Se agregaron $added cuentas" + (if (skipped > 0) " ($skipped ya existían o no eran válidas)" else "") +
+                        ". Iniciá sesión en cada una: las sesiones no se copian entre dispositivos."
+                )
+                .setPositiveButton("Entendido", null)
+                .show()
+        } catch (e: Exception) {
+            snack("El archivo no es válido")
         }
     }
 

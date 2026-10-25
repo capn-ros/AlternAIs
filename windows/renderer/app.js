@@ -104,6 +104,7 @@ function render() {
     btn.append(disk);
     const lines = [acc.name];
     if (acc.purpose) lines.push(acc.purpose);
+    if (acc.email) lines.push(acc.email);
     lines.push(st.text);
     if (i < 9) lines.push(`Ctrl+${i + 1}`);
     btn.title = lines.join('\n');
@@ -206,6 +207,7 @@ function openAccountDialog(acc) {
   $('#acc-title').textContent = acc ? 'Editar cuenta' : 'Nueva cuenta';
   $('#acc-name').value = acc ? acc.name : '';
   $('#acc-purpose').value = acc ? acc.purpose : '';
+  $('#acc-email').value = acc ? acc.email || '' : '';
   pickedColor = acc ? acc.color : PALETTE[state.accounts.length % PALETTE.length];
   renderSwatches();
   openDialog($('#dlg-account'));
@@ -219,7 +221,7 @@ $('#form-account').addEventListener('submit', async (e) => {
     $('#acc-name').focus();
     return;
   }
-  const data = { name, purpose: $('#acc-purpose').value.trim(), color: pickedColor };
+  const data = { name, purpose: $('#acc-purpose').value.trim(), email: $('#acc-email').value.trim(), color: pickedColor };
   $('#dlg-account').close();
   if (editingId) await window.api.update(editingId, data);
   else await window.api.add(data);
@@ -292,6 +294,30 @@ $('#cf-yes').addEventListener('click', async () => {
 let drawerOpen = false;
 let drawerToken = 0;
 
+function showSnap(snap) {
+  const box = $('#snap');
+  const img = $('#snap-img');
+  // Sin captura (todavía no hay página), se cubre igual el área de la página.
+  const r = snap || $('#stage').getBoundingClientRect();
+  box.style.left = `${r.x !== undefined ? r.x : r.left}px`;
+  box.style.top = `${r.y !== undefined ? r.y : r.top}px`;
+  box.style.width = `${r.width}px`;
+  box.style.height = `${r.height}px`;
+  if (snap) {
+    img.src = snap.url;
+    img.hidden = false;
+  } else {
+    img.hidden = true;
+  }
+  box.hidden = false;
+}
+
+function hideSnap() {
+  $('#snap').hidden = true;
+  $('#snap-img').removeAttribute('src');
+}
+$('#snap').addEventListener('click', () => setDrawer(false));
+
 function setDrawer(open, fromMain = false) {
   if (open === drawerOpen) return;
   drawerOpen = open;
@@ -300,16 +326,18 @@ function setDrawer(open, fromMain = false) {
   d.setAttribute('aria-hidden', String(!open));
   $('#settings').classList.toggle('on', open);
   if (open) {
-    // Primero la página se corre a la derecha, y recién ahí sale el cajón.
-    window.api.drawer(true).then(() => {
-      if (token === drawerToken) requestAnimationFrame(() => d.classList.add('open'));
+    // La página se congela en una captura (las vistas se dibujan sobre el HTML) y el cajón sale encima, con desenfoque.
+    window.api.drawer(true).then((snap) => {
+      if (token !== drawerToken) return;
+      showSnap(snap);
+      requestAnimationFrame(() => d.classList.add('open'));
     });
   } else {
     d.classList.remove('open');
-    // Espera a que termine de guardarse para devolverle el lugar a la página.
-    if (fromMain) return;
     setTimeout(() => {
-      if (token === drawerToken) window.api.drawer(false);
+      if (token !== drawerToken) return;
+      if (!fromMain) window.api.drawer(false);
+      hideSnap();
     }, 240);
   }
 }
@@ -342,6 +370,31 @@ $('#d-downloads').addEventListener('click', () => {
 $('#d-add').addEventListener('click', () => {
   setDrawer(false);
   openAccountDialog(null);
+});
+function showMessage(title, text) {
+  $('#msg-title').textContent = title;
+  $('#msg-text').textContent = text;
+  openDialog($('#dlg-msg'));
+}
+$('#msg-close').addEventListener('click', () => $('#dlg-msg').close());
+$('#d-export').addEventListener('click', async () => {
+  setDrawer(false);
+  const r = await window.api.exportAccounts();
+  if (r.ok) {
+    showMessage('Cuentas exportadas', `Se guardaron ${r.count} cuentas. El archivo no incluye las sesiones: al importarlo en otro dispositivo vas a tener que iniciar sesión en cada cuenta.`);
+  } else if (!r.canceled) {
+    showMessage('No se pudo exportar', 'Probá guardar el archivo en otra carpeta.');
+  }
+});
+$('#d-import').addEventListener('click', async () => {
+  setDrawer(false);
+  const r = await window.api.importAccounts();
+  if (r.ok) {
+    const extra = r.skipped ? ` (${r.skipped} ya existían o no eran válidas)` : '';
+    showMessage('Cuentas importadas', `Se agregaron ${r.added} cuentas${extra}. Iniciá sesión en cada una: las sesiones no se copian entre dispositivos.`);
+  } else if (!r.canceled) {
+    showMessage('El archivo no es válido', 'Elegí un archivo .json exportado desde AlternAIs.');
+  }
 });
 $('#d-about').addEventListener('click', () => {
   setDrawer(false);

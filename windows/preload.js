@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('api', {
   modal: (open) => ipcRenderer.invoke('ui:modal', !!open),
   drawer: (open) => ipcRenderer.invoke('ui:drawer', !!open),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
+  exportAccounts: () => ipcRenderer.invoke('data:export'),
+  importAccounts: () => ipcRenderer.invoke('data:import'),
   openDownloads: () => ipcRenderer.invoke('app:downloads'),
   onState: (cb) => ipcRenderer.on('state', (_e, s) => cb(s)),
   onAction: (cb) => ipcRenderer.on('action', (_e, a) => cb(a)),
