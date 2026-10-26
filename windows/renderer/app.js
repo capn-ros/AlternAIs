@@ -118,6 +118,7 @@ function render() {
   renderTopbar();
   renderServiceTabs();
   renderLoading();
+  if ($('#dlg-snip').open) renderSnippets();
   renderSettings();
 }
 
@@ -293,6 +294,91 @@ $('#lim-renew').addEventListener('click', () => {
 });
 $('#lim-clear').addEventListener('click', () => applyLimit(0));
 $('#lim-cancel').addEventListener('click', () => $('#dlg-limit').close());
+
+// ---------------------------------------------------------------- Mensajes guardados
+
+let snipEditing = -1;
+function renderSnippets() {
+  const box = $('#snip-list');
+  box.replaceChildren();
+  const list = state.snippets || [];
+  if (!list.length) {
+    const p = document.createElement('div');
+    p.className = 'snip-empty';
+    p.textContent = 'Todavía no hay mensajes guardados. Escribí uno abajo y tocá «Guardar».';
+    box.append(p);
+  }
+  list.forEach((text, i) => {
+    const row = document.createElement('div');
+    row.className = 'snip';
+    const pick = document.createElement('button');
+    pick.type = 'button';
+    pick.className = 'pick';
+    pick.textContent = text;
+    pick.title = 'Escribir en el chat';
+    pick.addEventListener('click', () => insertSnippet(text));
+    const mk = (label, title, fn) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'mini';
+      b.textContent = label;
+      b.title = title;
+      b.setAttribute('aria-label', title);
+      b.addEventListener('click', fn);
+      return b;
+    };
+    row.append(
+      pick,
+      mk('✎', 'Editar', () => {
+        snipEditing = i;
+        $('#snip-text').value = text;
+        $('#snip-save').textContent = 'Guardar cambios';
+        $('#snip-text').focus();
+      }),
+      mk('↑', 'Subir', () => {
+        if (i === 0) return;
+        const l = list.slice();
+        l.splice(i - 1, 0, l.splice(i, 1)[0]);
+        window.api.setSnippets(l);
+      }),
+      mk('🗑', 'Borrar', () => window.api.setSnippets(list.filter((_, j) => j !== i)))
+    );
+    box.append(row);
+  });
+}
+
+function openSnippets() {
+  if (!state.selectedId) return;
+  snipEditing = -1;
+  $('#snip-text').value = '';
+  $('#snip-save').textContent = 'Guardar';
+  renderSnippets();
+  openDialog($('#dlg-snip'));
+}
+
+async function insertSnippet(text) {
+  if (!text.trim()) return;
+  $('#dlg-snip').close();
+  await window.api.modal(false); // que la vista de la cuenta vuelva a estar visible antes de escribir
+  await window.api.insertSnippet(text);
+}
+$('#btn-snippets').addEventListener('click', openSnippets);
+$('#snip-close').addEventListener('click', () => $('#dlg-snip').close());
+$('#snip-insert').addEventListener('click', () => insertSnippet($('#snip-text').value));
+$('#snip-save').addEventListener('click', () => {
+  const t = $('#snip-text').value;
+  if (!t.trim()) {
+    $('#snip-text').focus();
+    return;
+  }
+  const list = (state.snippets || []).slice();
+  if (snipEditing >= 0 && snipEditing < list.length) list[snipEditing] = t;
+  else list.push(t);
+  snipEditing = -1;
+  $('#snip-text').value = '';
+  $('#snip-save').textContent = 'Guardar';
+  window.api.setSnippets(list);
+});
 
 function openConfirm(title, text, action) {
   $('#cf-title').textContent = title;
@@ -573,6 +659,9 @@ window.api.onAction((a) => {
   switch (a.type) {
     case 'add':
       if (!document.querySelector('dialog[open]')) openAccountDialog(null);
+      break;
+    case 'snippets':
+      if (!document.querySelector('dialog[open]')) openSnippets();
       break;
     case 'edit':
       if (acc) openAccountDialog(acc);

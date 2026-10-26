@@ -172,6 +172,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var infoDot: View
     private lateinit var btnToggleDock: ImageButton
     private lateinit var btnMore: ImageButton
+    private lateinit var btnSnippets: ImageButton
     private lateinit var timeBar: TimeBar
     private lateinit var dockBg: GradientDrawable
     private var dockCollapsed = false
@@ -297,6 +298,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnAddEmpty).setOnClickListener { addAccountFlow() }
         btnToggleDock.setOnClickListener { setDockCollapsed(!dockCollapsed, true) }
         btnMore.setOnClickListener { showMoreMenu() }
+        btnSnippets.setOnClickListener { showSnippets() }
         findViewById<MaterialButton>(R.id.btnRetry).setOnClickListener { retryCurrent() }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -600,6 +602,7 @@ class MainActivity : AppCompatActivity() {
         info.visibility = if (collapsed) View.GONE else View.VISIBLE
         timeBar.visibility = if (collapsed) View.VISIBLE else View.GONE
         btnMore.visibility = if (collapsed) View.GONE else View.VISIBLE
+        btnSnippets.visibility = if (collapsed) View.GONE else View.VISIBLE
         if (collapsed) setDrawerOpen(false)
         btnToggleDock.animate().rotation(if (collapsed) 180f else 0f).setDuration(220).start()
         scheduleAutoHide()
@@ -685,6 +688,7 @@ class MainActivity : AppCompatActivity() {
     private fun retintIcons() {
         val c = accent()
         btnMore.imageTintList = ColorStateList.valueOf(c)
+        btnSnippets.imageTintList = ColorStateList.valueOf(c)
         btnToggleDock.imageTintList = ColorStateList.valueOf(c)
         drawerCaption?.setTextColor(c)
         paintServiceTabs()
@@ -1001,6 +1005,8 @@ class MainActivity : AppCompatActivity() {
             b.contentDescription = desc
             return b
         }
+        val snip = iconButton(R.id.btnSnippets, R.drawable.ic_message, "Mensajes guardados")
+        row.addView(snip, LinearLayout.LayoutParams(dp(42), dp(42)))
         val more = iconButton(R.id.btnMore, R.drawable.ic_settings, "Ajustes")
         row.addView(more, LinearLayout.LayoutParams(dp(42), dp(42)))
         val toggle = iconButton(R.id.btnToggleDock, R.drawable.ic_expand, "Plegar o desplegar")
@@ -1029,6 +1035,7 @@ class MainActivity : AppCompatActivity() {
         timeBar = bar
         info = name
         btnMore = more
+        btnSnippets = snip
         btnToggleDock = toggle
         chipScroll = scroll
         chipGroup = group
@@ -1177,18 +1184,6 @@ class MainActivity : AppCompatActivity() {
             timeBar.set(acc.limitFraction(), "${acc.name} · faltan $left", chrome(acc), onSurface())
         } else {
             timeBar.set(1f, "${acc.name} · Disponible", chrome(acc), onSurface())
-        }
-    }
-
-    private fun formatRemaining(ms: Long): String {
-        val totalMin = (ms / 60_000L).coerceAtLeast(1L)
-        val days = totalMin / (60 * 24)
-        val hours = (totalMin % (60 * 24)) / 60
-        val mins = totalMin % 60
-        return when {
-            days > 0 -> "$days d $hours h"
-            hours > 0 -> "$hours h $mins min"
-            else -> "$mins min"
         }
     }
 
@@ -1794,6 +1789,140 @@ class MainActivity : AppCompatActivity() {
         sheet.show()
     }
 
+    // ---------------------------------------------------------------- Mensajes guardados
+
+    /**
+     * Hoja con los mensajes guardados: tocar uno lo escribe en la caja de chat de la cuenta activa
+     * (no lo envía, para que puedas completarlo). Mantener apretado uno lo edita o lo borra.
+     */
+    private fun showSnippets() {
+        if (currentId == null) {
+            snack("Primero abrí una cuenta")
+            return
+        }
+        val sheet = BottomSheetDialog(this)
+        val col = sheetColumn()
+        sheetHeader(col, "Mensajes guardados", "Tocá uno para escribirlo en el chat · mantené apretado para editarlo", null)
+        sheetRow(col, sheet, "Escribir texto propio…", R.drawable.ic_edit) { showSnippetEditor(null, insertNow = true) }
+        store.snippets.forEachIndexed { i, text ->
+            val row = sheetRow(col, sheet, text.replace('\n', ' '), R.drawable.ic_message) { insertIntoPage(text) }
+            row.maxLines = 2
+            row.ellipsize = android.text.TextUtils.TruncateAt.END
+            row.setOnLongClickListener {
+                sheet.dismiss()
+                showSnippetActions(i)
+                true
+            }
+        }
+        sheetRow(col, sheet, "Agregar mensaje guardado…", R.drawable.ic_add) { showSnippetEditor(null, insertNow = false) }
+        val scroll = android.widget.ScrollView(this)
+        scroll.addView(col)
+        sheet.setContentView(scroll)
+        sheet.show()
+    }
+
+    private fun showSnippetActions(index: Int) {
+        val list = store.snippets
+        val text = list.getOrNull(index) ?: return
+        val sheet = BottomSheetDialog(this)
+        val col = sheetColumn()
+        sheetHeader(col, "Mensaje guardado", text.take(80), null)
+        sheetRow(col, sheet, "Escribir en el chat", R.drawable.ic_message) { insertIntoPage(text) }
+        sheetRow(col, sheet, "Editar", R.drawable.ic_edit) { showSnippetEditor(index, insertNow = false) }
+        if (index > 0) sheetRow(col, sheet, "Subir", R.drawable.ic_expand) {
+            val m = list.toMutableList(); m.add(index - 1, m.removeAt(index)); store.snippets = m; showSnippets()
+        }
+        sheetRow(col, sheet, "Borrar", R.drawable.ic_trash) {
+            store.snippets = list.toMutableList().also { it.removeAt(index) }
+            snack("Mensaje borrado")
+        }
+        sheet.setContentView(col)
+        sheet.show()
+    }
+
+    /** Editor de un mensaje: `index` null = nuevo. Con `insertNow`, además de guardarlo opcionalmente lo escribe en el chat. */
+    private fun showSnippetEditor(index: Int?, insertNow: Boolean) {
+        val list = store.snippets
+        val input = com.google.android.material.textfield.TextInputEditText(this)
+        input.setText(if (index != null) list.getOrNull(index) ?: "" else "")
+        input.minLines = 3
+        input.maxLines = 8
+        input.gravity = Gravity.TOP or Gravity.START
+        input.inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+            android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+        input.hint = "Escribí tu mensaje"
+        val holder = FrameLayout(this)
+        holder.setPadding(dp(20), dp(8), dp(20), 0)
+        holder.addView(input, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val b = MaterialAlertDialogBuilder(this)
+            .setTitle(if (insertNow) "Texto propio" else if (index == null) "Nuevo mensaje guardado" else "Editar mensaje")
+            .setView(holder)
+            .setNegativeButton("Cancelar", null)
+        if (insertNow) {
+            b.setPositiveButton("Escribir en el chat") { _, _ ->
+                val t = input.text?.toString().orEmpty()
+                if (t.isNotBlank()) insertIntoPage(t)
+            }
+            b.setNeutralButton("Guardar y escribir") { _, _ ->
+                val t = input.text?.toString().orEmpty()
+                if (t.isNotBlank()) {
+                    store.snippets = list + t
+                    insertIntoPage(t)
+                }
+            }
+        } else {
+            b.setPositiveButton("Guardar") { _, _ ->
+                val t = input.text?.toString().orEmpty()
+                if (t.isBlank()) return@setPositiveButton
+                store.snippets = if (index == null) list + t else list.toMutableList().also { it[index] = t }
+                snack("Mensaje guardado")
+            }
+        }
+        val dlg = b.show()
+        input.requestFocus()
+        dlg.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+    }
+
+    /**
+     * Escribe `text` en la caja de chat de la página activa: en el campo que tenga el foco o, si no hay
+     * ninguno, en la última caja de texto visible. Si no encuentra dónde, lo copia al portapapeles.
+     */
+    private fun insertIntoPage(text: String) {
+        val wv = currentId?.let { webViews[it] } ?: return
+        val js = """
+            (function(t){
+              function editable(e){return e&&(e.isContentEditable||e.tagName==='TEXTAREA'||(e.tagName==='INPUT'&&/^(text|search|)$/.test(e.type)));}
+              var el=document.activeElement;
+              if(!editable(el)){
+                var c=[].slice.call(document.querySelectorAll('div[contenteditable="true"],textarea')).filter(function(x){return x.offsetParent!==null;});
+                el=c.length?c[c.length-1]:null;
+                if(!el) return 'none';
+                el.focus();
+                if(el.isContentEditable){var s=window.getSelection();s.selectAllChildren(el);s.collapseToEnd();}
+              }
+              if(el.isContentEditable){
+                if(!document.execCommand('insertText',false,t)) return 'none';
+              } else {
+                var proto=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
+                var set=Object.getOwnPropertyDescriptor(proto,'value').set;
+                var v=el.value||''; var a=el.selectionStart==null?v.length:el.selectionStart; var b=el.selectionEnd==null?v.length:el.selectionEnd;
+                set.call(el,v.slice(0,a)+t+v.slice(b));
+                el.selectionStart=el.selectionEnd=a+t.length;
+                el.dispatchEvent(new Event('input',{bubbles:true}));
+              }
+              return 'ok';
+            })(${org.json.JSONObject.quote(text)})
+        """.trimIndent()
+        wv.requestFocus()
+        wv.evaluateJavascript(js) { res ->
+            if (res?.contains("ok") != true) {
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("AlternAIs", text))
+                snack("No encontré la caja de chat: copié el mensaje, pegalo donde quieras")
+            }
+        }
+    }
+
     private fun showAboutDialog() {
         MaterialAlertDialogBuilder(this)
             .setTitle("Acerca de AlternAIs")
@@ -2307,6 +2436,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setLimit(acc: Account, until: Long) {
+        // El aviso de fin de descanso es una notificación: pide el permiso la primera vez.
+        if (until > 0L) askNotificationPermissionThen { }
         acc.limitUntil = until
         acc.limitStart = if (until > 0L) System.currentTimeMillis() else 0L
         onAccountsChanged()

@@ -7,6 +7,7 @@ const {
   shell,
   Notification,
   nativeTheme,
+  clipboard,
   Menu,
   Tray,
   nativeImage,
@@ -74,7 +75,19 @@ let state = {
   themes: { claude: 'dark', replit: 'light' },
   // Opciones de la app: posición de la barra de cuentas, inicio con Windows y qué pasa al cerrar.
   settings: { railPos: 'left', launchAtLogin: false, closeToTray: false },
+  // Mensajes guardados para escribir en el chat (compartidos por Claude y Replit).
+  snippets: [],
 };
+const DEFAULT_SNIPPETS = [
+  'Seguí donde te quedaste.',
+  'Antes de hacer nada, explicame lo siguiente: ',
+  'Resumí lo anterior en pocos puntos.',
+  'Explicámelo de forma simple, con un ejemplo.',
+];
+function cleanSnippets(list) {
+  if (!Array.isArray(list)) return [];
+  return list.filter((t) => typeof t === 'string' && t.trim()).map((t) => t.slice(0, 4000)).slice(0, 50);
+}
 const buckets = {
   claude: { accounts: [], selectedId: null },
   replit: { accounts: [], selectedId: null },
@@ -107,6 +120,7 @@ function loadState() {
       buckets.replit.selectedId = typeof raw.replit.selectedId === 'string' ? raw.replit.selectedId : null;
     }
     state.tutorialShown = raw.tutorialShown === true;
+    state.snippets = Array.isArray(raw.snippets) ? cleanSnippets(raw.snippets) : DEFAULT_SNIPPETS.slice();
     state.service = SERVICES[raw.service] ? raw.service : 'claude';
     const th = raw.themes && typeof raw.themes === 'object' ? raw.themes : {};
     state.themes = {
@@ -146,6 +160,7 @@ function saveState() {
       service: state.service,
       themes: state.themes,
       tutorialShown: state.tutorialShown,
+      snippets: state.snippets,
       settings: state.settings,
     };
     const tmp = stateFile() + '.tmp';
@@ -396,6 +411,9 @@ function handleShortcut(event, input) {
   } else if (key.toLowerCase() === 'r') {
     event.preventDefault();
     if (state.selectedId) reloadView(state.selectedId);
+  } else if (key.toLowerCase() === 'm') {
+    event.preventDefault();
+    if (win && state.selectedId) win.webContents.send('action', { type: 'snippets' });
   } else if (key.toLowerCase() === 'n') {
     event.preventDefault();
     if (win) win.webContents.send('action', { type: 'add' });
@@ -405,6 +423,7 @@ function handleShortcut(event, input) {
 // ---------------------------------------------------------------- Límites de uso
 
 function checkLimits() {
+  updateTrayMenu();
   const now = Date.now();
   let changed = false;
   for (const a of [...state.accounts, ...otherAccounts()]) {
@@ -413,10 +432,12 @@ function checkLimits() {
       a.limitStart = 0;
       changed = true;
       if (Notification.isSupported()) {
-        new Notification({
-          title: 'AlternAIs',
-          body: `«${a.name}» ya puede usarse de nuevo`,
-        }).show();
+        const n = new Notification({
+          title: `«${a.name}» ya puede usarse`,
+          body: 'Terminó el descanso por límite de uso.',
+        });
+        n.on('click', showWindow);
+        n.show();
       }
     }
   }
@@ -586,6 +607,46 @@ function registerIpc() {
     return snap;
   });
 
+  // Mensajes guardados: la lista la edita el renderer; escribir en el chat lo hace el proceso principal.
+  ipcMain.handle('snippets:set', (_e, list) => {
+    state.snippets = cleanSnippets(list);
+    saveState();
+    broadcast();
+  });
+
+  // Escribe el texto en la caja de chat de la cuenta activa (no lo envía). Si no encuentra dónde, lo copia.
+  ipcMain.handle('snippet:insert', async (_e, text) => {
+    const view = views.get(state.selectedId);
+    if (!view || typeof text !== 'string' || !text) return false;
+    const wc = view.webContents;
+    await new Promise((r) => setTimeout(r, 120));
+    showCurrent();
+    wc.focus();
+    let ok = false;
+    try {
+      ok = await wc.executeJavaScript(`(function () {
+        function editable(e) { return e && (e.isContentEditable || e.tagName === 'TEXTAREA' || (e.tagName === 'INPUT' && /^(text|search|)$/.test(e.type))); }
+        var el = document.activeElement;
+        if (!editable(el)) {
+          var c = [].slice.call(document.querySelectorAll('div[contenteditable="true"],textarea')).filter(function (x) { return x.offsetParent !== null; });
+          el = c.length ? c[c.length - 1] : null;
+          if (!el) return false;
+          el.focus();
+          if (el.isContentEditable) { var s = window.getSelection(); s.selectAllChildren(el); s.collapseToEnd(); }
+        }
+        return true;
+      })()`);
+    } catch (_) {
+      ok = false;
+    }
+    if (ok) {
+      wc.insertText(text);
+      return true;
+    }
+    clipboard.writeText(text);
+    return false;
+  });
+
   ipcMain.handle('settings:set', (_e, patch) => {
     if (!patch || typeof patch !== 'object') return;
     const st = state.settings;
@@ -751,23 +812,57 @@ function ensureTray() {
     const img = nativeImage.createFromPath(path.join(__dirname, 'renderer', 'tray.png')).resize({ width: 32, height: 32 });
     tray = new Tray(img);
     tray.setToolTip('AlternAIs');
-    tray.setContextMenu(
-      Menu.buildFromTemplate([
-        { label: 'Abrir AlternAIs', click: showWindow },
-        { type: 'separator' },
-        {
-          label: 'Salir',
-          click: () => {
-            quitting = true;
-            app.quit();
-          },
-        },
-      ])
-    );
+    updateTrayMenu();
     tray.on('click', showWindow);
   } catch (e) {
     console.error('No se pudo crear el ícono de la bandeja', e);
     tray = null;
+  }
+}
+
+// "2 h 10 min", "3 d 4 h", "12 min" (mínimo 1 min).
+function formatRemaining(ms) {
+  const totalMin = Math.max(1, Math.floor(ms / 60000));
+  const days = Math.floor(totalMin / 1440);
+  const hours = Math.floor((totalMin % 1440) / 60);
+  const mins = totalMin % 60;
+  if (days > 0) return `${days} d ${hours} h`;
+  if (hours > 0) return `${hours} h ${mins} min`;
+  return `${mins} min`;
+}
+
+// Menú de la bandeja: cada cuenta con su cuenta regresiva (o «Disponible»). Se rearma cada 30 s.
+function updateTrayMenu() {
+  if (!tray) return;
+  try {
+    syncBucket();
+    const now = Date.now();
+    const items = [{ label: 'Abrir AlternAIs', click: showWindow }, { type: 'separator' }];
+    let free = 0;
+    let total = 0;
+    for (const key of Object.keys(SERVICES)) {
+      const list = buckets[key].accounts;
+      if (!list.length) continue;
+      items.push({ label: SERVICES[key].label, enabled: false });
+      for (const a of list) {
+        total++;
+        const resting = a.limitUntil > now;
+        if (!resting) free++;
+        items.push({
+          label: `${resting ? '⏳' : '✅'}  ${a.name} — ${resting ? formatRemaining(a.limitUntil - now) : 'Disponible'}`,
+          click: () => {
+            showWindow();
+            if (key === state.service) selectAccount(a.id);
+          },
+        });
+      }
+      items.push({ type: 'separator' });
+    }
+    items.push({ label: 'Salir', click: () => { quitting = true; app.quit(); } });
+    tray.setContextMenu(Menu.buildFromTemplate(items));
+    tray.setToolTip(total ? `AlternAIs — ${free} de ${total} disponibles` : 'AlternAIs');
+  } catch (e) {
+    console.error('No se pudo armar el menú de la bandeja', e);
   }
 }
 

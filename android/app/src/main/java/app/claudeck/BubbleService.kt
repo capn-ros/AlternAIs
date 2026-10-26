@@ -10,7 +10,14 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
+import android.os.Handler
+import android.os.Looper
+import androidx.appcompat.content.res.AppCompatResources
 import android.graphics.Outline
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
@@ -113,6 +120,7 @@ class BubbleService : Service() {
     }
 
     override fun onDestroy() {
+        ticker.removeCallbacks(tickRunnable)
         instance = null
         root?.let {
             try {
@@ -234,6 +242,8 @@ class BubbleService : Service() {
         }
         root = r
         refreshHead()
+        ticker.removeCallbacks(tickRunnable)
+        ticker.postDelayed(tickRunnable, 15_000L)
         // Entrada con rebote
         head.scaleX = 0f
         head.scaleY = 0f
@@ -251,17 +261,68 @@ class BubbleService : Service() {
         }
     }
 
-    /** Redibuja la cabeza con el color/letra de la cuenta activa. */
+    /**
+     * Redibuja la cabeza: el logo de la app con una insignia que cuenta cuántas cuentas están disponibles
+     * (verde) o avisa que ninguna lo está (rojo).
+     */
     fun refreshHead() {
         if (root == null) return
         val list = store.load()
-        val acc = list.firstOrNull { it.id == store.selectedId } ?: list.firstOrNull()
-        val bmp = if (acc == null) {
-            Ui.avatar(Color.parseColor("#6B6B6B"), "+", headSize, ring = true)
-        } else {
-            Ui.avatar(acc.color, Ui.initial(acc.name), headSize, ring = true, resting = acc.limitActive())
+        val size = headSize
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        val circle = Path().apply { addCircle(size / 2f, size / 2f, size / 2f, Path.Direction.CW) }
+        c.save()
+        c.clipPath(circle)
+        AppCompatResources.getDrawable(this, R.drawable.ic_logo)?.let {
+            it.setBounds(0, 0, size, size)
+            it.draw(c)
+        }
+        c.restore()
+        if (list.isNotEmpty()) {
+            val free = list.count { !it.limitActive() }
+            val r = size * 0.24f
+            val cx = size - r
+            val cy = size - r
+            val p = Paint(Paint.ANTI_ALIAS_FLAG)
+            p.color = Color.parseColor("#1C1917")
+            c.drawCircle(cx, cy, r + dp(1.5f), p)
+            p.color = Color.parseColor(if (free > 0) "#3DA35D" else "#D64545")
+            c.drawCircle(cx, cy, r, p)
+            p.color = Color.WHITE
+            p.textAlign = Paint.Align.CENTER
+            p.isFakeBoldText = true
+            p.textSize = r * 1.25f
+            c.drawText(free.toString(), cx, cy - (p.descent() + p.ascent()) / 2f, p)
         }
         head.setImageBitmap(bmp)
+    }
+
+    private fun dp(v: Float): Float = v * resources.displayMetrics.density
+
+    // Cada tanto se actualizan la insignia y los contadores de la lista (si está abierta).
+    private val ticker = Handler(Looper.getMainLooper())
+    private val tickRunnable = object : Runnable {
+        override fun run() {
+            if (root == null) return
+            refreshHead()
+            updateRowLabels()
+            ticker.postDelayed(this, 15_000L)
+        }
+    }
+
+    private val rowLabels = mutableListOf<Pair<Account, TextView>>()
+
+    private fun labelFor(acc: Account): String =
+        if (acc.limitActive()) "${acc.name} · ⏳ ${formatRemaining(acc.limitUntil - System.currentTimeMillis())}"
+        else "${acc.name} · Disponible"
+
+    private fun updateRowLabels() {
+        if (!expanded) return
+        rowLabels.forEach { (acc, tv) ->
+            tv.text = labelFor(acc)
+            tv.setTextColor(if (acc.limitActive()) Color.parseColor("#F2A33A") else Color.WHITE)
+        }
     }
 
     // ---------------------------------------------------------------- Arrastre y toque
@@ -351,20 +412,23 @@ class BubbleService : Service() {
 
         listTop.removeAllViews()
         listBottom.removeAllViews()
+        rowLabels.clear()
         val target = if (above) listTop else listBottom
 
         val rows = mutableListOf<LinearLayout>()
         accounts.forEach { acc ->
             val current = acc.id == (store.selectedId ?: accounts.first().id)
             val bmp = Ui.avatar(acc.color, Ui.initial(acc.name), dp(44), ring = current, resting = acc.limitActive())
-            val label = if (acc.limitActive()) "${acc.name}  ⏳" else acc.name
-            rows.add(buildRow(label, bmp, right) { switchTo(acc.id) })
+            val row = buildRow(labelFor(acc), bmp, right) { switchTo(acc.id) }
+            (row.getChildAt(if (right) 0 else 1) as? TextView)?.let { rowLabels.add(acc to it) }
+            rows.add(row)
         }
         val hide = buildRow("Ocultar burbuja", Ui.avatar(Color.parseColor("#4A4A4A"), "✕", dp(44)), right) { hideBubble() }
         // La fila "ocultar" va lo más lejos posible de la cabeza para no tocarla sin querer.
         val ordered = if (above) listOf(hide) + rows else rows + hide
         ordered.forEach { target.addView(it) }
 
+        updateRowLabels()
         listTop.visibility = if (above) View.VISIBLE else View.GONE
         listBottom.visibility = if (above) View.GONE else View.VISIBLE
         setGravity(listTop, g)
@@ -467,6 +531,7 @@ class BubbleService : Service() {
     private fun hardCollapse() {
         listTop.removeAllViews()
         listBottom.removeAllViews()
+        rowLabels.clear()
         listTop.visibility = View.GONE
         listBottom.visibility = View.GONE
         applyCollapsedPosition()

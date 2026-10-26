@@ -528,6 +528,27 @@ h2 { margin: 0 0 14px; font-size: 18px; font-weight: 600; }
 .sub { color: var(--muted); margin: -6px 0 14px; line-height: 1.45; }
 label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 12px; }
 .opt { opacity: 0.8; }
+textarea {
+  display: block;
+  width: 100%;
+  margin-top: 5px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+  user-select: text;
+}
+textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.snip-list { display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow-y: auto; margin-bottom: 14px; }
+.snip { display: flex; align-items: stretch; gap: 4px; }
+.snip .pick { flex: 1; text-align: left; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; cursor: pointer; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: pre-wrap; }
+.snip .pick:hover { border-color: var(--accent); }
+.snip .mini { width: 34px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; font-size: 14px; }
+.snip .mini:hover { background: var(--line); color: var(--text); }
+.snip-empty { color: var(--muted); font-size: 13px; padding: 6px 2px; }
 input[type="text"], input[type="time"] {
   display: block;
   width: 100%;

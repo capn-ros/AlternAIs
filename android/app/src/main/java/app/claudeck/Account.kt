@@ -92,6 +92,7 @@ data class Account(
  * burbuja (mismo proceso), así que ambos ven siempre los mismos datos.
  */
 class AccountStore(context: Context) {
+    private val appContext = context.applicationContext
     private val prefs = context.getSharedPreferences("claudeck", Context.MODE_PRIVATE)
 
     /** Mitad de la app en uso. Cada servicio tiene sus propias cuentas y su propia cuenta activa. */
@@ -170,7 +171,26 @@ class AccountStore(context: Context) {
             )
         }
         prefs.edit().putString(accountsKey(svc), arr.toString()).apply()
+        // Cada vez que cambian las cuentas se reprograman las alarmas de fin de descanso.
+        LimitAlarms.reschedule(appContext)
     }
+
+    /** Mensajes guardados para pegar en el chat (compartidos por Claude y Replit). */
+    var snippets: List<String>
+        get() {
+            val raw = prefs.getString("snippets", null) ?: return DEFAULT_SNIPPETS
+            return try {
+                val arr = JSONArray(raw)
+                (0 until arr.length()).map { arr.getString(it) }.filter { it.isNotBlank() }
+            } catch (_: Exception) {
+                DEFAULT_SNIPPETS
+            }
+        }
+        set(value) {
+            val arr = JSONArray()
+            value.filter { it.isNotBlank() }.take(50).forEach { arr.put(it.take(4000)) }
+            prefs.edit().putString("snippets", arr.toString()).apply()
+        }
 
     fun selectedIdFor(svc: Service): String? = prefs.getString(selectedKey(svc), null)
 
@@ -225,3 +245,11 @@ class AccountStore(context: Context) {
             prefs.edit().putBoolean("tutorial_shown", value).apply()
         }
 }
+
+/** Mensajes de ejemplo la primera vez; se pueden editar y borrar. */
+internal val DEFAULT_SNIPPETS = listOf(
+    "Seguí donde te quedaste.",
+    "Antes de hacer nada, explicame lo siguiente: ",
+    "Resumí lo anterior en pocos puntos.",
+    "Explicámelo de forma simple, con un ejemplo."
+)

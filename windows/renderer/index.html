@@ -97,7 +97,7 @@
       </div>
       </section>
       </div>
-      <p class="drawer-hint">Ctrl+1…9 cambia de cuenta · Ctrl+Tab pasa a la siguiente · Ctrl+N agrega · Ctrl+R recarga</p>
+      <p class="drawer-hint">Ctrl+1…9 cambia de cuenta · Ctrl+Tab pasa a la siguiente · Ctrl+N agrega · Ctrl+R recarga · Ctrl+M mensajes</p>
     </aside>
 
     <main>
@@ -113,6 +113,7 @@
           <span class="tb-label" id="t-label"></span>
         </div>
         <div class="actions" id="t-actions" hidden>
+          <button id="btn-snippets" class="ghost" title="Mensajes guardados (Ctrl+M)">Mensajes</button>
           <button id="btn-reload" class="ghost" title="Recargar (Ctrl+R)">Recargar</button>
           <button id="btn-limit" class="ghost" title="Marcar que llegaste al límite de uso">Límite</button>
         </div>
@@ -173,6 +174,20 @@
     <div class="buttons">
       <button id="lim-clear" class="ghost">Quitar marca</button>
       <button id="lim-cancel" class="ghost">Cancelar</button>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-snip">
+    <h2>Mensajes guardados</h2>
+    <p class="sub">Tocá uno para escribirlo en el chat de la cuenta activa (no se envía solo).</p>
+    <div id="snip-list" class="snip-list"></div>
+    <label>Texto propio
+      <textarea id="snip-text" rows="3" maxlength="4000" placeholder="Escribí tu mensaje y elegí qué hacer con él"></textarea>
+    </label>
+    <div class="buttons">
+      <button type="button" id="snip-close" class="ghost">Cerrar</button>
+      <button type="button" id="snip-save" class="ghost">Guardar</button>
+      <button type="button" id="snip-insert" class="primary">Escribir en el chat</button>
     </div>
   </dialog>
 
