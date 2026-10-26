@@ -23,7 +23,7 @@ import kotlin.math.sin
  * (puntos de colores), se voltean cambiando de color (cambio de IA / de tema) y un anillo se completa
  * (el tiempo de descanso de cada cuenta). Se dibuja a mano; no usa recursos ni librerías.
  */
-class SplashLogoView(context: Context) : View(context) {
+class SplashLogoView(context: Context, private val loop: Boolean = false) : View(context) {
     private val coral = 0xFFD97757.toInt()
     private val cream = 0xFFF5EFE6.toInt()
     private val dots = intArrayOf(0xFFE07A5F.toInt(), 0xFFF2A33A.toInt(), 0xFF81B29A.toInt(), 0xFF3FB0C4.toInt(), 0xFF9B72CF.toInt())
@@ -38,7 +38,27 @@ class SplashLogoView(context: Context) : View(context) {
     init {
         setBackgroundColor(0xFF1C1917.toInt())
         isClickable = true
-        setOnClickListener { finish() }
+        if (!loop) setOnClickListener { finish() }
+    }
+
+    /** En modo bucle (mientras carga una página): repite giro, volteo y anillo, sin la entrada. */
+    fun startLoop() {
+        animator?.cancel()
+        animator = ValueAnimator.ofFloat(0f, LOOP).apply {
+            duration = LOOP.toLong()
+            interpolator = LinearInterpolator()
+            repeatCount = ValueAnimator.INFINITE
+            addUpdateListener {
+                t = LOOP_START + it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+    }
+
+    fun stopLoop() {
+        animator?.cancel()
+        animator = null
     }
 
     fun start() {
@@ -120,6 +140,7 @@ class SplashLogoView(context: Context) : View(context) {
             paint.strokeWidth = 3f * u
             paint.strokeCap = Paint.Cap.ROUND
             paint.color = coral
+            paint.alpha = if (loop) ((1f - clamp((t - 1450f) / 150f)) * 255).toInt() else 255
             rect.set(cx - 46f * u, cy - 46f * u, cx + 46f * u, cy + 46f * u)
             canvas.drawArc(rect, -90f, 360f * ring, false, paint)
         }
@@ -151,5 +172,7 @@ class SplashLogoView(context: Context) : View(context) {
 
     companion object {
         const val TOTAL = 1700f
+        const val LOOP_START = 300f
+        const val LOOP = 1300f
     }
 }

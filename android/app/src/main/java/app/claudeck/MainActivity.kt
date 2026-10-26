@@ -151,6 +151,12 @@ class MainActivity : AppCompatActivity() {
     private val webViews = HashMap<String, WebView>()
     private val chips = HashMap<String, ImageView>()
     private val failed = HashSet<String>()
+
+    // Logo animado en bucle mientras carga la primera vez (o al recargar) la página de una cuenta.
+    private val loadingIds = HashSet<String>()
+    private var loadingView: SplashLogoView? = null
+    private var loadingShownAt = 0L
+    private val loadingSafety = Runnable { loadingIds.clear(); updateLoadingOverlay() }
     private val downloads = HashMap<Long, String>()
 
     private lateinit var container: FrameLayout
@@ -406,6 +412,51 @@ class MainActivity : AppCompatActivity() {
         }
         webViews.clear()
         super.onDestroy()
+    }
+
+    /** Recarga la página de una cuenta mostrando el logo animado hasta que termine. */
+    private fun reloadWithLogo(id: String) {
+        val wv = webViews[id] ?: return
+        failed.remove(id)
+        loadingIds.add(id)
+        handler.removeCallbacks(loadingSafety)
+        handler.postDelayed(loadingSafety, 25000)
+        updateErrorView()
+        updateLoadingOverlay()
+        wv.reload()
+    }
+
+    /** Muestra u oculta el logo en bucle según si la cuenta activa todavía está cargando. */
+    private fun updateLoadingOverlay() {
+        val want = currentId != null && loadingIds.contains(currentId) && !failed.contains(currentId)
+        val v = loadingView
+        if (want) {
+            val view = v ?: SplashLogoView(this, loop = true).also {
+                loadingView = it
+                it.elevation = dp(2).toFloat()
+                container.addView(it, FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            }
+            if (view.visibility != View.VISIBLE || view.alpha < 1f || loadingShownAt == 0L) {
+                view.animate().cancel()
+                view.alpha = 1f
+                view.visibility = View.VISIBLE
+                view.startLoop()
+                loadingShownAt = System.currentTimeMillis()
+            }
+            view.bringToFront()
+        } else if (v != null && v.visibility == View.VISIBLE && loadingShownAt != 0L) {
+            // Que no parpadee si la carga es muy rápida: se queda al menos ~0,7 s.
+            val wait = (700 - (System.currentTimeMillis() - loadingShownAt)).coerceAtLeast(0)
+            loadingShownAt = 0L
+            v.animate().cancel()
+            v.animate().alpha(0f).setStartDelay(wait).setDuration(220).withEndAction {
+                if (loadingShownAt == 0L) {
+                    v.visibility = View.GONE
+                    v.stopLoop()
+                }
+            }.start()
+        }
     }
 
     /** Animación del logo al abrir la app: se dibuja encima de todo y se quita sola al terminar. */
@@ -733,7 +784,7 @@ class MainActivity : AppCompatActivity() {
 
         drawerIcons.add(sheetRow(d, null, "Recargar cuenta actual", R.drawable.ic_reload) {
             setDrawerOpen(false)
-            currentId?.let { webViews[it]?.reload() }
+            currentId?.let { reloadWithLogo(it) }
         })
         drawerIcons.add(sheetRow(d, null, "Ver descargas", R.drawable.ic_download) {
             setDrawerOpen(false)
@@ -1177,6 +1228,7 @@ class MainActivity : AppCompatActivity() {
         updateSelection()
         updateInfo()
         updateErrorView()
+        updateLoadingOverlay()
         chips[id]?.let { chip -> chipScroll.post { chipScroll.smoothScrollTo(chip.left - dp(16), 0) } }
         webViews[id]?.requestFocus()
         scheduleAutoHide()
@@ -1230,9 +1282,7 @@ class MainActivity : AppCompatActivity() {
         val id = currentId ?: return
         failed.remove(id)
         updateErrorView()
-        webViews[id]?.let { wv ->
-            wv.reload()
-        }
+        reloadWithLogo(id)
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -1241,6 +1291,9 @@ class MainActivity : AppCompatActivity() {
         val dark = store.dark
         val wv = WebView(ContextThemeWrapper(this, if (dark) R.style.Theme_Claudeck_WebDark else R.style.Theme_Claudeck_WebLight))
         wv.tag = acc.id
+        loadingIds.add(acc.id)
+        handler.removeCallbacks(loadingSafety)
+        handler.postDelayed(loadingSafety, 25000)
         if (multiProfileOk) {
             // Perfil propio: cookies, almacenamiento y caché separados por cuenta.
             ProfileStore.getInstance().getOrCreateProfile(acc.profileName)
@@ -1306,6 +1359,7 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 view?.evaluateJavascript(HOOK_JS, null)
                 rememberPage(view, url)
+                (view?.tag as? String)?.let { if (loadingIds.remove(it)) updateLoadingOverlay() }
             }
 
             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
@@ -1318,6 +1372,7 @@ class MainActivity : AppCompatActivity() {
                 if (request?.isForMainFrame != true) return
                 val id = view?.tag as? String ?: return
                 failed.add(id)
+                if (loadingIds.remove(id)) updateLoadingOverlay()
                 if (id == currentId) updateErrorView()
             }
         }
@@ -1720,7 +1775,7 @@ class MainActivity : AppCompatActivity() {
         } else "Disponible"
         sheetHeader(col, acc.name, listOf(acc.purpose, acc.email, status).filter { it.isNotBlank() }.joinToString(" · "), acc.color)
         sheetRow(col, sheet, "Editar nombre, propósito o color", R.drawable.ic_edit, chrome(acc)) { showAccountDialog(acc) }
-        sheetRow(col, sheet, "Recargar", R.drawable.ic_reload, chrome(acc)) { webViews[acc.id]?.reload() ?: select(acc.id) }
+        sheetRow(col, sheet, "Recargar", R.drawable.ic_reload, chrome(acc)) { if (webViews.containsKey(acc.id)) reloadWithLogo(acc.id) else select(acc.id) }
         sheetRow(col, sheet, "Marcar límite alcanzado…", R.drawable.ic_clock, chrome(acc)) { showLimitDialog(acc) }
         if (acc.limitActive()) sheetRow(col, sheet, "Quitar marca de límite", R.drawable.ic_check, chrome(acc)) { setLimit(acc, 0L) }
         sheetRow(col, sheet, "Cerrar sesión y borrar datos", R.drawable.ic_logout, chrome(acc)) {
@@ -2271,6 +2326,7 @@ class MainActivity : AppCompatActivity() {
             wv.destroy()
         }
         failed.remove(acc.id)
+        loadingIds.remove(acc.id)
         if (multiProfileOk) {
             try {
                 ProfileStore.getInstance().deleteProfile(acc.profileName)

@@ -117,6 +117,7 @@ function render() {
   });
   renderTopbar();
   renderServiceTabs();
+  renderLoading();
   renderSettings();
 }
 
@@ -131,6 +132,23 @@ function renderSettings() {
     b.classList.toggle('on', (b.dataset.close === 'tray') === st.closeToTray);
   }
   $('#d-login').setAttribute('aria-checked', String(st.launchAtLogin));
+}
+
+let loadingAnim = null;
+function renderLoading() {
+  const el = $('#loading');
+  const want = !!(state.loading && state.selectedId);
+  if (want) {
+    if (!loadingAnim && window.AlternLogo) loadingAnim = window.AlternLogo.mount(el, { loop: true });
+    el.classList.add('on');
+  } else {
+    el.classList.remove('on');
+    if (loadingAnim) {
+      const a = loadingAnim;
+      loadingAnim = null;
+      setTimeout(() => { if (!loadingAnim) a.stop(); }, 260);
+    }
+  }
 }
 
 function renderServiceTabs() {

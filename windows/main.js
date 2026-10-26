@@ -198,6 +198,7 @@ function serviceOf(id) {
 }
 
 function broadcast() {
+  state.loading = loadingIds.has(state.selectedId);
   if (win && !win.isDestroyed()) win.webContents.send('state', state);
 }
 
@@ -239,6 +240,43 @@ function openLink(url, wc) {
   }
 }
 
+// Páginas que todavía cargan (la primera vez o al recargar): mientras tanto la vista queda oculta y el
+// renderer muestra el logo animado en bucle. Se queda al menos ~0,7 s para que no parpadee.
+const loadingIds = new Set();
+function trackLoading(id, wc) {
+  loadingIds.add(id);
+  const since = Date.now();
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    clearTimeout(safety);
+    wc.removeListener('did-stop-loading', finish);
+    wc.removeListener('did-fail-load', onFail);
+    setTimeout(() => {
+      loadingIds.delete(id);
+      if (views.has(id)) showCurrent();
+      broadcast();
+    }, Math.max(0, 700 - (Date.now() - since)));
+  };
+  const onFail = (_e, _code, _desc, _url, isMainFrame) => {
+    if (isMainFrame) finish();
+  };
+  const safety = setTimeout(finish, 25000);
+  wc.on('did-stop-loading', finish);
+  wc.on('did-fail-load', onFail);
+}
+
+function reloadView(id) {
+  const v = views.get(id);
+  if (!v) return false;
+  trackLoading(id, v.webContents);
+  v.webContents.reload();
+  showCurrent();
+  broadcast();
+  return true;
+}
+
 function createView(acc) {
   const view = new WebContentsView({
     webPreferences: {
@@ -260,6 +298,7 @@ function createView(acc) {
   });
   wc.on('before-input-event', handleShortcut);
   const svc = SERVICES[serviceOf(acc.id)];
+  trackLoading(acc.id, wc);
   wc.loadURL(cleanUrl(acc.lastUrl, serviceOf(acc.id)) || svc.startUrl);
   view.setVisible(false);
   win.contentView.addChildView(view);
@@ -271,6 +310,7 @@ function createView(acc) {
 function destroyView(id) {
   const view = views.get(id);
   if (!view) return;
+  loadingIds.delete(id);
   views.delete(id);
   try {
     win.contentView.removeChildView(view);
@@ -305,7 +345,7 @@ function layout() {
 }
 
 function showCurrent() {
-  for (const [id, v] of views) v.setVisible(!modalOpen && !drawerOpen && id === state.selectedId);
+  for (const [id, v] of views) v.setVisible(!modalOpen && !drawerOpen && id === state.selectedId && !loadingIds.has(id));
   const cur = views.get(state.selectedId);
   if (cur && !modalOpen && !drawerOpen) {
     programmaticFocus = true;
@@ -355,8 +395,7 @@ function handleShortcut(event, input) {
     selectAccount(state.accounts[(i + (input.shift ? -1 : 1) + n) % n].id);
   } else if (key.toLowerCase() === 'r') {
     event.preventDefault();
-    const cur = views.get(state.selectedId);
-    if (cur) cur.webContents.reload();
+    if (state.selectedId) reloadView(state.selectedId);
   } else if (key.toLowerCase() === 'n') {
     event.preventDefault();
     if (win) win.webContents.send('action', { type: 'add' });
@@ -396,7 +435,10 @@ async function wipeSession(acc) {
 }
 
 function registerIpc() {
-  ipcMain.handle('state:get', () => state);
+  ipcMain.handle('state:get', () => {
+    state.loading = loadingIds.has(state.selectedId);
+    return state;
+  });
   ipcMain.handle('app:version', () => app.getVersion());
   ipcMain.handle('tutorial:complete', () => {
     state.tutorialShown = true;
@@ -474,9 +516,7 @@ function registerIpc() {
   });
 
   ipcMain.handle('account:reload', (_e, id) => {
-    const v = views.get(id);
-    if (v) v.webContents.reload();
-    else selectAccount(id);
+    if (!reloadView(id)) selectAccount(id);
   });
 
   ipcMain.handle('account:limit', (_e, id, until) => {
@@ -665,9 +705,7 @@ function registerIpc() {
       {
         label: 'Recargar',
         click: () => {
-          const v = views.get(id);
-          if (v) v.webContents.reload();
-          else selectAccount(id);
+          if (!reloadView(id)) selectAccount(id);
         },
       },
       { type: 'separator' },
