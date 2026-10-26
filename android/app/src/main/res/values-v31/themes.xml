@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+: la pantalla de inicio del sistema usa el mismo carbón del logo, para empalmar con la animación. -->
+    <style name="Theme.Claudeck" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/brand</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="android:statusBarColor">?attr/colorSurface</item>
+        <item name="android:navigationBarColor">?attr/colorSurfaceContainer</item>
+        <item name="android:windowSplashScreenBackground">@color/ic_launcher_background</item>
+    </style>
+</resources>

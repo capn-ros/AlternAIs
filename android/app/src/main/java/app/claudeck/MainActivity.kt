@@ -286,6 +286,8 @@ class MainActivity : AppCompatActivity() {
         errorView = findViewById(R.id.errorView)
         applyServiceTheme()
 
+        if (savedInstanceState == null) showSplash()
+
         findViewById<View>(R.id.btnAddEmpty).setOnClickListener { addAccountFlow() }
         btnToggleDock.setOnClickListener { setDockCollapsed(!dockCollapsed, true) }
         btnMore.setOnClickListener { showMoreMenu() }
@@ -404,6 +406,15 @@ class MainActivity : AppCompatActivity() {
         }
         webViews.clear()
         super.onDestroy()
+    }
+
+    /** Animación del logo al abrir la app: se dibuja encima de todo y se quita sola al terminar. */
+    private fun showSplash() {
+        val v = SplashLogoView(this)
+        addContentView(v, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        v.elevation = dp(40).toFloat()
+        v.onDone = { (v.parent as? ViewGroup)?.removeView(v) }
+        v.start()
     }
 
     // ---------------------------------------------------------------- UI helpers

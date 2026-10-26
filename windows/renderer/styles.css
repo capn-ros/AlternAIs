@@ -612,3 +612,15 @@ input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(210, 105, 7
   .timebar { width: 210px; }
   .tb-label, .tb-fill span { width: 210px; }
 }
+
+/* Animación de arranque del logo (la dibuja splash.js; se quita sola). */
+#splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1c1917;
+}
+.splash-svg { width: min(46vh, 46vw, 420px); height: auto; overflow: visible; }

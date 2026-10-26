@@ -822,8 +822,12 @@ function createWindow() {
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.webContents.once('did-finish-load', () => {
     sendWindowState();
-    if (state.selectedId) selectAccount(state.selectedId);
-    else broadcast();
+    // La animación del logo ocupa la ventana ~1,7 s: la cuenta (una vista web encima) entra después.
+    setTimeout(() => {
+      if (!win || win.isDestroyed()) return;
+      if (state.selectedId) selectAccount(state.selectedId);
+      else broadcast();
+    }, 1720);
   });
 }
 
