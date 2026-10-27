@@ -806,6 +806,25 @@ function fxJoin(dir, name) {
   return dir.endsWith(sep) ? dir + name : dir + sep + name;
 }
 const fxPaths = () => fx.entries.filter((e) => fx.sel.has(e.name)).map((e) => fxJoin(fx.dir, e.name));
+const FX_KINDS = {
+  archive: 'zip rar 7z tar gz tgz bz2 xz',
+  image: 'png jpg jpeg gif webp bmp heic svg ico',
+  video: 'mp4 mkv webm avi mov wmv',
+  audio: 'mp3 wav ogg flac m4a aac opus',
+  pdf: 'pdf',
+  doc: 'doc docx odt rtf ppt pptx odp',
+  sheet: 'xls xlsx ods csv',
+  code: 'js ts kt java py html htm css json xml sh ps1 c cpp h go rs yml yaml sql',
+  exe: 'exe msi bat cmd apk lnk',
+  text: 'txt md log ini cfg',
+};
+function fxKind(e) {
+  if (e.isDir) return 'folder';
+  const ext = (e.name.split('.').pop() || '').toLowerCase();
+  if (ext === e.name.toLowerCase()) return 'other';
+  for (const [k, list] of Object.entries(FX_KINDS)) if (list.split(' ').includes(ext)) return k;
+  return 'other';
+}
 const fxIsZip = (e) => !e.isDir && /\.zip$/i.test(e.name);
 
 function fxSay(text, busy) {
@@ -904,6 +923,57 @@ function fxOpenEntry(e) {
   if (e.isDir) fxLoad(full);
   else window.api.fsOpen(full).then((r) => { if (!r.ok) fxMsg('No se pudo abrir: ' + (r.message || '')); });
 }
+
+let fxMenuEl = null;
+function fxCloseMenu() {
+  if (fxMenuEl) fxMenuEl.remove();
+  fxMenuEl = null;
+}
+
+function fxMenu(e, x, y) {
+  fxCloseMenu();
+  if (!fx.sel.has(e.name)) { fx.sel = new Set([e.name]); fxSelChanged(); }
+  const multi = fx.sel.size > 1;
+  const full = fxJoin(fx.dir, e.name);
+  const items = [];
+  if (!multi) {
+    items.push([e.isDir ? 'Abrir carpeta' : fxKind(e) === 'exe' ? 'Ejecutar' : 'Abrir', e.isDir ? 'folder' : 'open', () => fxOpenEntry(e)]);
+    items.push(['Mostrar en el Explorador', 'folder', () => window.api.fsReveal(full)]);
+    if (fxIsZip(e)) {
+      items.push(['Extraer en carpeta', 'extract', () => fxExtract(true)]);
+      items.push(['Extraer aquí', 'extract', () => fxExtract(false)]);
+    }
+  }
+  items.push(['Copiar', 'copy', () => fxSetClip(false)]);
+  items.push(['Mover', 'move', () => fxSetClip(true)]);
+  if (!multi) items.push(['Renombrar', 'edit', () => fxRename()]);
+  items.push(['Borrar', 'trash', () => fxDelete()]);
+
+  const m = document.createElement('div');
+  m.className = 'fx-menu';
+  m.setAttribute('role', 'menu');
+  const t = document.createElement('div');
+  t.className = 'fx-menu-title';
+  t.textContent = multi ? `${fx.sel.size} elementos` : e.name;
+  m.append(t);
+  for (const [label, icon, fn] of items) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('role', 'menuitem');
+    if (label === 'Borrar') b.className = 'danger';
+    b.append(fxIcon(icon), document.createTextNode(label));
+    b.addEventListener('click', () => { fxCloseMenu(); fn(); });
+    m.append(b);
+  }
+  document.body.append(m);
+  fxMenuEl = m;
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + 'px';
+  m.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
+  m.querySelector('button').focus();
+}
+document.addEventListener('pointerdown', (ev) => { if (fxMenuEl && !fxMenuEl.contains(ev.target)) fxCloseMenu(); }, true);
+document.addEventListener('keydown', (ev) => { if (fxMenuEl && ev.key === 'Escape') { ev.stopPropagation(); fxCloseMenu(); } }, true);
 
 function fxSetClip(cut) {
   const paths = fxPaths();
@@ -1023,22 +1093,6 @@ function renderFxBar() {
     fx.entries = fxSorted();
     renderFx();
   }));
-  if (n) {
-    const sep = document.createElement('span');
-    sep.className = 'fx-sep';
-    bar.append(sep);
-    bar.append(fxChip('Copiar', 'copy', () => fxSetClip(false), { title: 'Ctrl+C' }));
-    bar.append(fxChip('Mover', 'move', () => fxSetClip(true), { title: 'Ctrl+X' }));
-    if (n === 1) bar.append(fxChip('Renombrar', 'edit', fxRename, { title: 'F2' }));
-    if (only && fxIsZip(only)) {
-      bar.append(fxChip('Extraer en carpeta', 'extract', () => fxExtract(true)));
-      bar.append(fxChip('Extraer aquí', 'extract', () => fxExtract(false)));
-    }
-    if (only && !only.isDir) bar.append(fxChip('Abrir', 'open', () => fxOpenEntry(only), { title: 'Enter' }));
-    bar.append(fxChip('Mostrar en el Explorador', 'open', () => window.api.fsReveal(fxPaths()[0])));
-    bar.append(fxChip('Borrar', 'trash', fxDelete, { title: 'Supr' }));
-  }
-
 }
 
 function renderFx() {
@@ -1074,7 +1128,9 @@ function renderFx() {
     row.className = 'fx-row' + (fx.sel.has(e.name) ? ' sel' : '');
     row.setAttribute('role', 'option');
     row.setAttribute('aria-selected', String(fx.sel.has(e.name)));
-    const ico = fxIcon(e.isDir ? 'folder' : fxIsZip(e) ? 'zip' : 'file', 'fx-ico');
+    const kind = fxKind(e);
+    const ico = fxIcon(e.isDir ? 'folder' : kind === 'archive' ? 'zip' : 'file', 'fx-ico');
+    ico.dataset.kind = kind;
     const nm = document.createElement('span');
     nm.className = 'nm' + (cutSet.has(fxJoin(fx.dir, e.name)) ? ' cut' : '');
     nm.textContent = e.name;
@@ -1083,6 +1139,7 @@ function renderFx() {
     meta.textContent = `${e.isDir ? '' : fxFmtSize(e.size) + ' · '}${fxFmtDate(e.mtime)}`;
     row.append(ico, nm, meta);
     row.addEventListener('click', (ev) => {
+      if (row.dataset.held) { delete row.dataset.held; return; }
       if (ev.shiftKey && fx.last !== null) {
         const [a, b] = [Math.min(fx.last, i), Math.max(fx.last, i)];
         if (!ev.ctrlKey) fx.sel.clear();
@@ -1097,6 +1154,21 @@ function renderFx() {
       fxSelChanged();
     });
     row.addEventListener('dblclick', () => fxOpenEntry(e));
+    row.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault();
+      fxMenu(e, ev.clientX, ev.clientY);
+    });
+    // Mantener apretado (táctil o mouse) abre el mismo menú.
+    let hold = null;
+    const cancel = () => { clearTimeout(hold); hold = null; };
+    row.addEventListener('pointerdown', (ev) => {
+      if (ev.button !== 0) return;
+      const { clientX: x, clientY: y } = ev;
+      hold = setTimeout(() => { hold = null; row.dataset.held = '1'; fxMenu(e, x, y); }, 500);
+    });
+    row.addEventListener('pointermove', (ev) => { if (hold && Math.abs(ev.movementX) + Math.abs(ev.movementY) > 3) cancel(); });
+    row.addEventListener('pointerup', cancel);
+    row.addEventListener('pointerleave', cancel);
     list.append(row);
   });
 }

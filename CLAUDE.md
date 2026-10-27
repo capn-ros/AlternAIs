@@ -217,3 +217,8 @@ zip -r cd.zip . -x "cd.zip" -x ".git/*" -x "*/node_modules/*" -x "*/dist/*" -x "
   - Windows: `<aside id="browser">` + `WebContentsView` nativo (`ensureBrowser` en main.js) posicionado sobre `#br-body` con `browser:show(rect)`; se oculta al salir del panel. Atajos: Ctrl+B abre/cierra, Ctrl+L foco en la URL, Alt+←/→, Ctrl+R.
   - `setPanel` en app.js maneja settings/files/snippets/browser (uno abierto a la vez).
 - Cuidado al editar index.html: no borrar `dlg-prompt` (lo usa el explorador).
+
+## Explorador: colores por tipo y menú contextual
+- Colores por tipo de archivo: Android `FileKind` (FileOps.kt); Windows `fxKind` + reglas `.fx-ico[data-kind]` en styles.css.
+- Las acciones de un archivo ya no están arriba: se abren en un menú al mantener apretado (Android `showMenu`, PopupWindow) o clic derecho / mantener apretado (Windows `fxMenu`). La barra superior solo tiene Pegar, Nueva carpeta y Orden.
+- Abrir/ejecutar: Android abre con la app correspondiente, instala .apk (permiso REQUEST_INSTALL_PACKAGES), "Abrir con…" y "Abrir como texto"; Windows usa `shell.openPath` (ejecuta .exe/.bat y abre con la app predeterminada).

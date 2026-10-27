@@ -17,7 +17,43 @@ enum class SortMode(val label: String) {
 
 class FileEntry(val file: File, val isDir: Boolean, val size: Long, val modified: Long) {
     val name: String get() = file.name
+    val kind: FileKind get() = FileKind.of(file.name, isDir)
     val isZip: Boolean get() = !isDir && file.name.lowercase(Locale.ROOT).endsWith(".zip")
+}
+
+/** Tipo de archivo según la extensión: decide el color del ícono en el explorador. */
+enum class FileKind(val color: Int) {
+    FOLDER(0xFFF2B01E.toInt()),
+    ARCHIVE(0xFFA06BE8.toInt()),
+    IMAGE(0xFF2FBF71.toInt()),
+    VIDEO(0xFFEF6B3B.toInt()),
+    AUDIO(0xFFE85DA8.toInt()),
+    PDF(0xFFE5484D.toInt()),
+    DOC(0xFF4C8DFF.toInt()),
+    SHEET(0xFF3CB7A8.toInt()),
+    CODE(0xFF22B8CF.toInt()),
+    APK(0xFF7BC043.toInt()),
+    TEXT(0xFF9AA3AE.toInt()),
+    OTHER(0xFF8A8F98.toInt());
+
+    companion object {
+        fun of(name: String, isDir: Boolean): FileKind {
+            if (isDir) return FOLDER
+            return when (name.substringAfterLast('.', "").lowercase(Locale.ROOT)) {
+                "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz" -> ARCHIVE
+                "png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "svg" -> IMAGE
+                "mp4", "mkv", "webm", "avi", "mov", "3gp" -> VIDEO
+                "mp3", "wav", "ogg", "flac", "m4a", "aac", "opus" -> AUDIO
+                "pdf" -> PDF
+                "doc", "docx", "odt", "rtf", "ppt", "pptx", "odp" -> DOC
+                "xls", "xlsx", "ods", "csv" -> SHEET
+                "js", "ts", "kt", "java", "py", "html", "htm", "css", "json", "xml", "sh", "bat", "c", "cpp", "h", "go", "rs", "yml", "yaml", "gradle", "sql" -> CODE
+                "apk", "apks", "xapk" -> APK
+                "txt", "md", "log", "ini", "cfg" -> TEXT
+                else -> OTHER
+            }
+        }
+    }
 }
 
 /** Operaciones sobre archivos del explorador interno. Todo lo que puede tardar se llama desde un hilo aparte. */

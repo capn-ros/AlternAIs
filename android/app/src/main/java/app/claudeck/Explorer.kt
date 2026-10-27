@@ -76,6 +76,9 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
     private lateinit var emptyView: TextView
     private lateinit var permView: LinearLayout
     private val adapter = Adapter()
+    private var touchX = 0
+    private var touchY = 0
+    private var menu: android.widget.PopupWindow? = null
 
     init {
         build()
@@ -487,19 +490,116 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
         }
     }
 
-    private fun openFile(f: File) {
+    /** Abre el archivo con la app que corresponda (o instala un .apk). `asText` lo fuerza como texto; `chooser` deja elegir app. */
+    private fun openFile(f: File, asText: Boolean = false, chooser: Boolean = true) {
         try {
             val uri = FileProvider.getUriForFile(act, act.packageName + ".files", f)
-            val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(f.extension.lowercase()) ?: "*/*"
+            val ext = f.extension.lowercase()
+            val mime = when {
+                asText -> "text/plain"
+                ext == "apk" -> "application/vnd.android.package-archive"
+                else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
+            }
             val i = Intent(Intent.ACTION_VIEW)
                 .setDataAndType(uri, mime)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            act.startActivity(Intent.createChooser(i, f.name))
+            act.startActivity(if (chooser && ext != "apk") Intent.createChooser(i, f.name) else i)
         } catch (_: ActivityNotFoundException) {
             host.message("No hay una app para abrir este archivo")
         } catch (e: Exception) {
             host.message("No se pudo abrir: " + (e.message ?: ""))
         }
+    }
+
+    // ---------------------------------------------------------------- Menú contextual (mantener apretado)
+
+    private fun dismissMenu() {
+        menu?.dismiss()
+        menu = null
+    }
+
+    private fun showMenu(anchor: View, e: FileEntry) {
+        dismissMenu()
+        // Si el elemento está dentro de la selección, el menú actúa sobre toda la selección; si no, sobre él solo.
+        val targets: List<File> = if (selected.contains(e.file)) selected.toList() else listOf(e.file)
+        val multi = targets.size > 1
+        val items = ArrayList<Triple<String, Int, () -> Unit>>()
+        fun item(label: String, icon: Int, action: () -> Unit) {
+            items.add(Triple(label, icon, action))
+        }
+        if (!multi) {
+            val ext = e.file.extension.lowercase()
+            if (e.isDir) {
+                item("Abrir", R.drawable.ic_folder) { navigate(e.file) }
+            } else if (ext == "apk") {
+                item("Instalar", R.drawable.ic_download) { openFile(e.file, chooser = false) }
+            } else {
+                item("Abrir", R.drawable.ic_file) { if (e.isZip) zipOptions(e.file) else openFile(e.file) }
+            }
+            if (!e.isDir) {
+                item("Abrir con…", R.drawable.ic_forward) { openFile(e.file) }
+                item("Abrir como texto", R.drawable.ic_edit) { openFile(e.file, asText = true) }
+            }
+            if (e.isZip) item("Extraer", R.drawable.ic_zip) { zipOptions(e.file) }
+        }
+        if (!selected.contains(e.file)) item("Seleccionar", R.drawable.ic_check) { toggle(e.file) }
+        item("Copiar", R.drawable.ic_copy) { selected.clear(); selected.addAll(targets); setClip(false) }
+        item("Mover", R.drawable.ic_move) { selected.clear(); selected.addAll(targets); setClip(true) }
+        if (!multi) item("Renombrar", R.drawable.ic_edit) { renameDialog(e.file) }
+        item("Borrar", R.drawable.ic_trash) { deleteDialog(targets) }
+
+        val box = LinearLayout(act)
+        box.orientation = LinearLayout.VERTICAL
+        box.setPadding(0, dp(6), 0, dp(6))
+        box.background = GradientDrawable().apply {
+            cornerRadius = dp(14).toFloat()
+            setColor(host.surface())
+            setStroke(dp(2), host.border())
+        }
+        val title = TextView(act)
+        title.text = if (multi) "${targets.size} elementos" else e.name
+        title.textSize = 12f
+        title.setTextColor(muted)
+        title.maxLines = 1
+        title.ellipsize = TextUtils.TruncateAt.MIDDLE
+        title.setPadding(dp(16), dp(6), dp(16), dp(6))
+        box.addView(title)
+        for ((label, icon, action) in items) {
+            val row = TextView(act)
+            row.text = label
+            row.textSize = 15f
+            row.setTextColor(onSurface)
+            row.gravity = Gravity.CENTER_VERTICAL
+            row.minHeight = dp(44)
+            row.setPadding(dp(16), 0, dp(20), 0)
+            AppCompatResources.getDrawable(act, icon)?.mutate()?.let {
+                it.setTint(if (label == "Borrar") 0xFFE5484D.toInt() else accent)
+                it.setBounds(0, 0, dp(20), dp(20))
+                row.setCompoundDrawablesRelative(it, null, null, null)
+            }
+            row.compoundDrawablePadding = dp(14)
+            row.setBackgroundResource(selectableBg())
+            row.setOnClickListener {
+                dismissMenu()
+                action()
+            }
+            box.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        val w = dp(230)
+        val pw = android.widget.PopupWindow(box, w, ViewGroup.LayoutParams.WRAP_CONTENT, true)
+        pw.elevation = dp(12).toFloat()
+        pw.isOutsideTouchable = true
+        pw.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+        box.measure(
+            View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        val screen = act.resources.displayMetrics
+        val x = (touchX - w / 2).coerceIn(dp(8), screen.widthPixels - w - dp(8))
+        val y = (touchY - dp(12)).coerceIn(dp(24), (screen.heightPixels - box.measuredHeight - dp(24)).coerceAtLeast(dp(24)))
+        menu = pw
+        pw.showAtLocation(anchor, Gravity.TOP or Gravity.START, x, y)
+        anchor.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
     }
 
     private fun onItemClick(e: FileEntry) {
@@ -560,16 +660,23 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
         override fun onBindViewHolder(h: Holder, position: Int) {
             val e = entries[position]
             val on = selected.contains(e.file)
-            h.icon.setImageResource(if (e.isDir) R.drawable.ic_folder else if (e.isZip) R.drawable.ic_zip else R.drawable.ic_file)
-            h.icon.imageTintList = android.content.res.ColorStateList.valueOf(accent)
+            h.icon.setImageResource(if (e.isDir) R.drawable.ic_folder else if (e.kind == FileKind.ARCHIVE) R.drawable.ic_zip else R.drawable.ic_file)
+            h.icon.imageTintList = android.content.res.ColorStateList.valueOf(e.kind.color)
             h.name.text = e.name
             val date = DateFormat.format("d MMM yyyy HH:mm", e.modified).toString()
             h.sub.text = if (e.isDir) "Carpeta · $date" else FileOps.humanSize(e.size) + " · " + date
             h.check.visibility = if (on) View.VISIBLE else View.INVISIBLE
             h.row.setBackgroundColor(if (on) ColorUtils.setAlphaComponent(accent, 0x2A) else Color.TRANSPARENT)
             h.row.setOnClickListener { onItemClick(e) }
+            h.row.setOnTouchListener { _, ev ->
+                if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+                    touchX = ev.rawX.toInt()
+                    touchY = ev.rawY.toInt()
+                }
+                false
+            }
             h.row.setOnLongClickListener {
-                toggle(e.file)
+                showMenu(h.row, e)
                 true
             }
         }
