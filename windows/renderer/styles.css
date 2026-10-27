@@ -772,3 +772,6 @@ input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(210, 105, 7
 .fx-menu button:hover, .fx-menu button:focus-visible { background: color-mix(in srgb, var(--accent) 16%, transparent); outline: none; }
 .fx-menu button svg { width: 18px; height: 18px; flex: none; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .fx-menu button.danger svg { stroke: #e5484d; }
+.fx-row .chk { width: 18px; height: 18px; flex: none; border-radius: 5px; border: 2px solid var(--muted); box-sizing: border-box; display: grid; place-items: center; }
+.fx-row.sel .chk { background: var(--accent); border-color: var(--accent); }
+.fx-row.sel .chk::after { content: ""; width: 4px; height: 8px; border: solid var(--bg, #fff); border-width: 0 2px 2px 0; transform: rotate(45deg) translate(-1px, -1px); }

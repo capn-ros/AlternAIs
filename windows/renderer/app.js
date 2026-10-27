@@ -794,7 +794,7 @@ function fxIcon(name, cls) {
 
 const fx = {
   dir: null, parent: null, entries: [], sel: new Set(), last: null,
-  clip: { paths: [], cut: false }, sort: 'date', places: [], busy: false, started: false,
+  clip: { paths: [], cut: false }, sort: 'date', places: [], busy: false, started: false, multi: false,
 };
 const FX_SORTS = { date: 'Fecha', name: 'Nombre', size: 'Tamaño' };
 
@@ -1087,6 +1087,19 @@ function renderFxBar() {
     sep.className = 'fx-sep';
     bar.append(sep);
   }
+  bar.append(fxChip(fx.multi ? 'Selección múltiple: sí' : 'Seleccionar varios', 'all', () => {
+    fx.multi = !fx.multi;
+    if (!fx.multi) fx.sel.clear();
+    renderFx();
+    fxStatusDefault();
+  }, { on: fx.multi, title: 'Con Ctrl o Mayús también se seleccionan varios' }));
+  if (fx.multi && fx.entries.length) {
+    bar.append(fxChip(n === fx.entries.length ? 'Ninguno' : 'Todo', 'all', () => {
+      if (fx.sel.size === fx.entries.length) fx.sel.clear();
+      else fx.entries.forEach((e) => fx.sel.add(e.name));
+      fxSelChanged();
+    }, { title: 'Ctrl+A' }));
+  }
   bar.append(fxChip('Nueva carpeta', 'newfolder', fxNewFolder, { title: 'Ctrl+Shift+N' }));
   bar.append(fxChip(`Orden: ${FX_SORTS[fx.sort]}`, 'sort', () => {
     fx.sort = fx.sort === 'date' ? 'name' : fx.sort === 'name' ? 'size' : 'date';
@@ -1137,6 +1150,11 @@ function renderFx() {
     const meta = document.createElement('span');
     meta.className = 'meta';
     meta.textContent = `${e.isDir ? '' : fxFmtSize(e.size) + ' · '}${fxFmtDate(e.mtime)}`;
+    if (fx.multi) {
+      const chk = document.createElement('span');
+      chk.className = 'chk';
+      row.append(chk);
+    }
     row.append(ico, nm, meta);
     row.addEventListener('click', (ev) => {
       if (row.dataset.held) { delete row.dataset.held; return; }
@@ -1144,7 +1162,7 @@ function renderFx() {
         const [a, b] = [Math.min(fx.last, i), Math.max(fx.last, i)];
         if (!ev.ctrlKey) fx.sel.clear();
         for (let k = a; k <= b; k++) fx.sel.add(fx.entries[k].name);
-      } else if (ev.ctrlKey || ev.metaKey) {
+      } else if (ev.ctrlKey || ev.metaKey || fx.multi) {
         if (!fx.sel.delete(e.name)) fx.sel.add(e.name);
         fx.last = i;
       } else {

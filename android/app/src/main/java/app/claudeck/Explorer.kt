@@ -84,6 +84,11 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
         build()
     }
 
+    /** Cambia el color del borde del cajón (sigue a la cuenta activa). */
+    fun setBorder(color: Int) {
+        (view.background as? GradientDrawable)?.setStroke(dp(3), color)
+    }
+
     private fun dp(v: Int): Int = (v * act.resources.displayMetrics.density).toInt()
 
     // ---------------------------------------------------------------- Construcción

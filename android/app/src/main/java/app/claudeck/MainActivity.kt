@@ -864,6 +864,7 @@ class MainActivity : AppCompatActivity() {
         if (from == 0) {
             dockBg.setStroke(dp(3), color)
             if (::drawerBg.isInitialized) drawerBg.setStroke(dp(3), color)
+            panelBorders(color)
             return
         }
         borderAnim = ValueAnimator.ofObject(ArgbEvaluator(), from, color).apply {
@@ -872,9 +873,17 @@ class MainActivity : AppCompatActivity() {
                 val c = it.animatedValue as Int
                 dockBg.setStroke(dp(3), c)
                 if (::drawerBg.isInitialized) drawerBg.setStroke(dp(3), c)
+                panelBorders(c)
             }
             start()
         }
+    }
+
+    /** Los cajones (archivos, mensajes, navegador) llevan el mismo borde que la barra y los ajustes. */
+    private fun panelBorders(c: Int) {
+        explorer?.setBorder(c)
+        snippetsPanel?.setBorder(c)
+        browser?.setBorder(c)
     }
 
     private fun newTrayBg(): GradientDrawable {
