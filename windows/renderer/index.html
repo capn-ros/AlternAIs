@@ -97,7 +97,7 @@
       </div>
       </section>
       </div>
-      <p class="drawer-hint">Ctrl+1…9 cambia de cuenta · Ctrl+Tab pasa a la siguiente · Ctrl+N agrega · Ctrl+R recarga · Ctrl+M mensajes · Ctrl+E archivos</p>
+      <p class="drawer-hint">Ctrl+1…9 cambia de cuenta · Ctrl+Tab pasa a la siguiente · Ctrl+N agrega · Ctrl+R recarga · Ctrl+M mensajes · Ctrl+E archivos · Ctrl+B navegador</p>
     </aside>
 
     <aside id="files" aria-label="Archivos" aria-hidden="true" tabindex="-1">
@@ -115,6 +115,40 @@
       <div class="fx-status" id="fx-status"></div>
     </aside>
 
+    <aside id="snippets" aria-label="Mensajes guardados" aria-hidden="true" tabindex="-1">
+      <div class="fx-head">
+        <div class="fx-title">
+          <strong>Mensajes guardados</strong>
+          <span>Tocá uno para escribirlo en el chat de la cuenta activa (no se envía solo)</span>
+        </div>
+        <button id="snip-x" class="fx-btn" type="button" title="Cerrar (Esc)" aria-label="Cerrar"></button>
+      </div>
+      <div class="snip-list" id="snip-list"></div>
+      <div class="snip-edit">
+        <label>Texto propio
+          <textarea id="snip-text" rows="3" maxlength="4000" placeholder="Escribí tu mensaje y elegí qué hacer con él"></textarea>
+        </label>
+        <div class="buttons">
+          <button type="button" id="snip-save" class="ghost">Guardar</button>
+          <button type="button" id="snip-insert" class="primary">Escribir en el chat</button>
+        </div>
+      </div>
+    </aside>
+
+    <aside id="browser" aria-label="Navegador" aria-hidden="true" tabindex="-1">
+      <div class="br-bar">
+        <button id="br-back" class="fx-btn" type="button" title="Atrás (Alt+←)" aria-label="Atrás"></button>
+        <button id="br-fwd" class="fx-btn" type="button" title="Adelante (Alt+→)" aria-label="Adelante"></button>
+        <button id="br-reload" class="fx-btn" type="button" title="Recargar (Ctrl+R)" aria-label="Recargar"></button>
+        <input id="br-url" type="text" spellcheck="false" autocomplete="off" placeholder="Buscá o escribí una dirección" />
+        <button id="br-ext" class="fx-btn" type="button" title="Abrir en el navegador del sistema" aria-label="Abrir en el navegador del sistema"></button>
+        <button id="br-close" class="fx-btn" type="button" title="Cerrar (Ctrl+B)" aria-label="Cerrar el navegador"></button>
+      </div>
+      <div class="fx-bar" id="br-quick"></div>
+      <div class="br-progress" id="br-progress"></div>
+      <div class="br-body" id="br-body"></div>
+    </aside>
+
     <main>
       <header id="topbar">
         <div class="who" id="who" hidden>
@@ -127,6 +161,7 @@
           <div class="tb-fill" id="t-fill"><span id="t-fill-label"></span></div>
           <span class="tb-label" id="t-label"></span>
         </div>
+        <button id="btn-browser" class="ghost" title="Navegador (Ctrl+B)">Navegador</button>
         <button id="btn-files" class="ghost" title="Explorador de archivos (Ctrl+E)">Archivos</button>
         <div class="actions" id="t-actions" hidden>
           <button id="btn-snippets" class="ghost" title="Mensajes guardados (Ctrl+M)">Mensajes</button>
@@ -190,20 +225,6 @@
     <div class="buttons">
       <button id="lim-clear" class="ghost">Quitar marca</button>
       <button id="lim-cancel" class="ghost">Cancelar</button>
-    </div>
-  </dialog>
-
-  <dialog id="dlg-snip">
-    <h2>Mensajes guardados</h2>
-    <p class="sub">Tocá uno para escribirlo en el chat de la cuenta activa (no se envía solo).</p>
-    <div id="snip-list" class="snip-list"></div>
-    <label>Texto propio
-      <textarea id="snip-text" rows="3" maxlength="4000" placeholder="Escribí tu mensaje y elegí qué hacer con él"></textarea>
-    </label>
-    <div class="buttons">
-      <button type="button" id="snip-close" class="ghost">Cerrar</button>
-      <button type="button" id="snip-save" class="ghost">Guardar</button>
-      <button type="button" id="snip-insert" class="primary">Escribir en el chat</button>
     </div>
   </dialog>
 

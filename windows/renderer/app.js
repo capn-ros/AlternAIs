@@ -118,7 +118,7 @@ function render() {
   renderTopbar();
   renderServiceTabs();
   renderLoading();
-  if ($('#dlg-snip').open) renderSnippets();
+  if (snippetsOpen) renderSnippets();
   renderSettings();
 }
 
@@ -295,7 +295,7 @@ $('#lim-renew').addEventListener('click', () => {
 $('#lim-clear').addEventListener('click', () => applyLimit(0));
 $('#lim-cancel').addEventListener('click', () => $('#dlg-limit').close());
 
-// ---------------------------------------------------------------- Mensajes guardados
+// ---------------------------------------------------------------- Mensajes guardados (cajón)
 
 let snipEditing = -1;
 function renderSnippets() {
@@ -349,21 +349,25 @@ function renderSnippets() {
 
 function openSnippets() {
   if (!state.selectedId) return;
+  setSnippets(!snippetsOpen);
+}
+
+function snippetsOpened() {
   snipEditing = -1;
   $('#snip-text').value = '';
   $('#snip-save').textContent = 'Guardar';
   renderSnippets();
-  openDialog($('#dlg-snip'));
+  $('#snippets').focus();
 }
 
 async function insertSnippet(text) {
   if (!text.trim()) return;
-  $('#dlg-snip').close();
-  await window.api.modal(false); // que la vista de la cuenta vuelva a estar visible antes de escribir
+  setSnippets(false);
+  // Esperar a que el cajón cierre y la vista de la cuenta vuelva a estar visible antes de escribir.
+  await new Promise((r) => setTimeout(r, 300));
   await window.api.insertSnippet(text);
 }
 $('#btn-snippets').addEventListener('click', openSnippets);
-$('#snip-close').addEventListener('click', () => $('#dlg-snip').close());
 $('#snip-insert').addEventListener('click', () => insertSnippet($('#snip-text').value));
 $('#snip-save').addEventListener('click', () => {
   const t = $('#snip-text').value;
@@ -379,6 +383,7 @@ $('#snip-save').addEventListener('click', () => {
   $('#snip-save').textContent = 'Guardar';
   window.api.setSnippets(list);
 });
+$('#snip-x').addEventListener('click', () => setSnippets(false));
 
 function openConfirm(title, text, action) {
   $('#cf-title').textContent = title;
@@ -426,7 +431,9 @@ $('#snap').addEventListener('click', () => setPanel(null));
 // Un solo panel abierto a la vez (ajustes o archivos): ambos comparten la captura de la página.
 let activePanel = null; // 'settings' | 'files' | null
 let filesOpen = false;
-const PANEL_IDS = { settings: '#drawer', files: '#files' };
+const PANEL_IDS = { settings: '#drawer', files: '#files', snippets: '#snippets', browser: '#browser' };
+let snippetsOpen = false;
+let browserOpen = false;
 
 function setPanel(name, fromMain = false) {
   if (name === activePanel) return;
@@ -434,7 +441,10 @@ function setPanel(name, fromMain = false) {
   activePanel = name;
   drawerOpen = name === 'settings';
   filesOpen = name === 'files';
+  snippetsOpen = name === 'snippets';
+  browserOpen = name === 'browser';
   const token = ++drawerToken;
+  if (prev === 'browser') window.api.browserHide(); // la vista web nativa se dibuja encima: se esconde ya
   if (prev) {
     const p = $(PANEL_IDS[prev]);
     p.classList.remove('open');
@@ -442,12 +452,16 @@ function setPanel(name, fromMain = false) {
   }
   $('#settings').classList.toggle('on', drawerOpen);
   $('#btn-files').classList.toggle('on', filesOpen);
+  $('#btn-snippets').classList.toggle('on', snippetsOpen);
+  $('#btn-browser').classList.toggle('on', browserOpen);
   if (name) {
     const d = $(PANEL_IDS[name]);
     d.setAttribute('aria-hidden', 'false');
     const reveal = () => {
       requestAnimationFrame(() => d.classList.add('open'));
       if (name === 'files') filesOpened();
+      if (name === 'snippets') snippetsOpened();
+      if (name === 'browser') browserOpened();
     };
     if (prev) {
       reveal(); // la captura de la página ya está puesta
@@ -471,6 +485,16 @@ function setPanel(name, fromMain = false) {
 function setDrawer(open, fromMain = false) {
   if (open) setPanel('settings', fromMain);
   else if (activePanel === 'settings') setPanel(null, fromMain);
+}
+
+function setSnippets(open, fromMain = false) {
+  if (open) setPanel('snippets', fromMain);
+  else if (activePanel === 'snippets') setPanel(null, fromMain);
+}
+
+function setBrowser(open, fromMain = false) {
+  if (open) setPanel('browser', fromMain);
+  else if (activePanel === 'browser') setPanel(null, fromMain);
 }
 
 function setFiles(open, fromMain = false) {
@@ -696,6 +720,12 @@ window.api.onAction((a) => {
       break;
     case 'snippets':
       if (!document.querySelector('dialog[open]')) openSnippets();
+      break;
+    case 'browser':
+      if (!document.querySelector('dialog[open]')) setBrowser(!browserOpen);
+      break;
+    case 'browser-url':
+      if (browserOpen) { $('#br-url').focus(); $('#br-url').select(); }
       break;
     case 'edit':
       if (acc) openAccountDialog(acc);
@@ -1077,6 +1107,7 @@ $('#btn-files').prepend(fxIcon('folder'));
 $('#btn-files').addEventListener('click', () => setFiles(!filesOpen));
 
 document.addEventListener('keydown', (e) => {
+  if (snippetsOpen && e.key === 'Escape' && !document.querySelector('dialog[open]')) { setSnippets(false); return; }
   if (!filesOpen || document.querySelector('dialog[open]')) return;
   if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
   const k = e.key.toLowerCase();
@@ -1097,3 +1128,75 @@ document.addEventListener('keydown', (e) => {
   else if (mod && k === 'v') fxPaste();
   else if (mod && e.shiftKey && k === 'n') { e.preventDefault(); fxNewFolder(); }
 });
+
+// ---------------------------------------------------------------- Navegador interno
+
+const BR_QUICK = [
+  ['GitHub', 'https://github.com/'],
+  ['Google', 'https://www.google.com/'],
+  ['DuckDuckGo', 'https://duckduckgo.com/'],
+  ['Stack Overflow', 'https://stackoverflow.com/'],
+];
+FX_ICONS.back = 'M15,5l-7,7l7,7';
+FX_ICONS.fwd = 'M9,5l7,7l-7,7';
+FX_ICONS.reload = 'M20,12a8,8 0 1,1 -2.5,-5.8 M20,4v5h-5';
+FX_ICONS.globe = 'M3,12a9,9 0 1,0 18,0a9,9 0 1,0 -18,0 M3,12h18 M12,3c2.5,2.6 3.8,5.6 3.8,9s-1.3,6.4 -3.8,9c-2.5,-2.6 -3.8,-5.6 -3.8,-9s1.3,-6.4 3.8,-9z';
+
+const br = { loading: false, canBack: false, canFwd: false, started: false };
+$('#snip-x').append(fxIcon('close'));
+$('#br-back').append(fxIcon('back'));
+$('#br-fwd').append(fxIcon('fwd'));
+$('#br-reload').append(fxIcon('reload'));
+$('#br-ext').append(fxIcon('open'));
+$('#br-close').append(fxIcon('close'));
+$('#btn-browser').prepend(fxIcon('globe'));
+for (const [label, url] of BR_QUICK) {
+  $('#br-quick').append(fxChip(label, 'globe', () => window.api.browserGo(url)));
+}
+
+function renderBrowser(st) {
+  br.loading = !!st.loading;
+  br.canBack = !!st.canGoBack;
+  br.canFwd = !!st.canGoForward;
+  $('#br-back').disabled = !br.canBack;
+  $('#br-fwd').disabled = !br.canGoForward && !br.canFwd;
+  $('#br-progress').classList.toggle('busy', br.loading);
+  const rb = $('#br-reload');
+  rb.replaceChildren(fxIcon(br.loading ? 'close' : 'reload'));
+  rb.title = br.loading ? 'Detener' : 'Recargar (Ctrl+R)';
+  if (document.activeElement !== $('#br-url')) $('#br-url').value = st.url || '';
+}
+window.api.onBrowserState(renderBrowser);
+
+function brRect() {
+  const r = $('#br-body').getBoundingClientRect();
+  return { x: r.left, y: r.top, width: r.width, height: r.height };
+}
+
+async function browserOpened() {
+  const st = await window.api.browserOpen();
+  renderBrowser(st);
+  // La vista web se dibuja encima del HTML: aparece cuando el cajón terminó de salir.
+  setTimeout(() => {
+    if (browserOpen) window.api.browserShow(brRect());
+  }, 290);
+}
+
+new ResizeObserver(() => {
+  if (browserOpen) window.api.browserShow(brRect());
+}).observe($('#br-body'));
+
+$('#btn-browser').addEventListener('click', () => setBrowser(!browserOpen));
+$('#br-close').addEventListener('click', () => setBrowser(false));
+$('#br-back').addEventListener('click', () => window.api.browserNav('back'));
+$('#br-fwd').addEventListener('click', () => window.api.browserNav('forward'));
+$('#br-reload').addEventListener('click', () => window.api.browserNav(br.loading ? 'stop' : 'reload'));
+$('#br-ext').addEventListener('click', () => window.api.browserExternal());
+$('#br-url').addEventListener('keydown', async (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const r = await window.api.browserGo($('#br-url').value);
+  if (r && !r.ok) $('#br-url').select();
+  else $('#br-url').blur();
+});
+$('#br-url').addEventListener('focus', () => $('#br-url').select());

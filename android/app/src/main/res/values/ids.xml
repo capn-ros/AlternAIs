@@ -2,4 +2,5 @@
 <resources>
     <item name="btnSnippets" type="id" />
     <item name="btnFiles" type="id" />
+    <item name="btnBrowser" type="id" />
 </resources>

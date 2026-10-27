@@ -394,6 +394,95 @@ function selectAccount(id) {
 
 // ---------------------------------------------------------------- Atajos
 
+// ---------------------------------------------------------------- Navegador interno (universal)
+
+// Una sola vista web para toda la app, con su propia sesión (partición «browser»): no pertenece a ninguna cuenta.
+const BROWSER_HOME = 'https://github.com/';
+let browserView = null;
+let browserShown = false;
+let browserRect = null;
+let browserLoaded = false;
+
+function normalizeBrowserInput(raw) {
+  const t = typeof raw === 'string' ? raw.trim().slice(0, 2000) : '';
+  if (!t) return null;
+  if (/^https?:\/\//i.test(t)) return t;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t)) return null; // otros protocolos: no
+  if (!/\s/.test(t) && t.includes('.')) return 'https://' + t;
+  return 'https://duckduckgo.com/?q=' + encodeURIComponent(t);
+}
+
+function browserState() {
+  if (!browserView || browserView.webContents.isDestroyed()) {
+    return { url: '', title: '', canGoBack: false, canGoForward: false, loading: false };
+  }
+  const wc = browserView.webContents;
+  const h = wc.navigationHistory;
+  return {
+    url: wc.getURL(),
+    title: wc.getTitle(),
+    canGoBack: h ? h.canGoBack() : wc.canGoBack(),
+    canGoForward: h ? h.canGoForward() : wc.canGoForward(),
+    loading: wc.isLoading(),
+  };
+}
+
+function sendBrowserState() {
+  if (win && !win.isDestroyed()) win.webContents.send('browser-state', browserState());
+}
+
+function applyBrowserVisibility() {
+  if (!browserView) return;
+  if (browserRect) browserView.setBounds(browserRect);
+  browserView.setVisible(browserShown && !modalOpen && !!browserRect);
+}
+
+function ensureBrowser() {
+  if (browserView) return browserView;
+  browserView = new WebContentsView({
+    webPreferences: { partition: 'persist:browser', contextIsolation: true, sandbox: true, nodeIntegration: false },
+  });
+  const wc = browserView.webContents;
+  setupSession(wc.session);
+  // Que los sitios lo vean como un Chrome común y no como una app Electron.
+  wc.setUserAgent(wc.getUserAgent().replace(/\s(Electron|AlternAIs|claudeck)\/\S+/gi, ''));
+  wc.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) wc.loadURL(url);
+    return { action: 'deny' };
+  });
+  wc.on('will-navigate', (e, url) => {
+    if (!/^https?:\/\//i.test(url)) e.preventDefault();
+  });
+  wc.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    const k = String(input.key || '').toLowerCase();
+    if (input.control && k === 'r') {
+      event.preventDefault();
+      wc.reload();
+    } else if (input.control && k === 'l') {
+      event.preventDefault();
+      if (win) win.webContents.send('action', { type: 'browser-url' });
+    } else if (input.control && k === 'b') {
+      event.preventDefault();
+      if (win) win.webContents.send('action', { type: 'browser' });
+    } else if (input.alt && k === 'arrowleft') {
+      event.preventDefault();
+      wc.navigationHistory ? wc.navigationHistory.canGoBack() && wc.navigationHistory.goBack() : wc.goBack();
+    } else if (input.alt && k === 'arrowright') {
+      event.preventDefault();
+      wc.navigationHistory ? wc.navigationHistory.canGoForward() && wc.navigationHistory.goForward() : wc.goForward();
+    } else {
+      handleShortcut(event, input);
+    }
+  });
+  for (const ev of ['did-navigate', 'did-navigate-in-page', 'page-title-updated', 'did-start-loading', 'did-stop-loading', 'did-fail-load']) {
+    wc.on(ev, sendBrowserState);
+  }
+  browserView.setVisible(false);
+  win.contentView.addChildView(browserView);
+  return browserView;
+}
+
 function handleShortcut(event, input) {
   if (input.type !== 'keyDown' || !(input.control || input.meta)) return;
   const key = String(input.key || '');
@@ -412,6 +501,9 @@ function handleShortcut(event, input) {
   } else if (key.toLowerCase() === 'r') {
     event.preventDefault();
     if (state.selectedId) reloadView(state.selectedId);
+  } else if (key.toLowerCase() === 'b') {
+    event.preventDefault();
+    if (win) win.webContents.send('action', { type: 'browser' });
   } else if (key.toLowerCase() === 'e') {
     event.preventDefault();
     if (win) win.webContents.send('action', { type: 'files' });
@@ -583,6 +675,7 @@ function registerIpc() {
   ipcMain.handle('ui:modal', (_e, open) => {
     modalOpen = !!open;
     showCurrent();
+    applyBrowserVisibility();
   });
 
   // Con el cajón abierto la página se reemplaza por una captura (las vistas se dibujan sobre el HTML y
@@ -609,6 +702,48 @@ function registerIpc() {
     drawerOpen = true;
     showCurrent();
     return snap;
+  });
+
+  // ---- Navegador interno ----
+  ipcMain.handle('browser:open', () => {
+    const v = ensureBrowser();
+    if (!browserLoaded) {
+      browserLoaded = true;
+      v.webContents.loadURL(BROWSER_HOME);
+    }
+    return browserState();
+  });
+  ipcMain.handle('browser:show', (_e, rect) => {
+    if (!browserView || !rect) return;
+    const n = (x) => Math.max(0, Math.round(Number(x) || 0));
+    browserRect = { x: n(rect.x), y: n(rect.y), width: n(rect.width), height: n(rect.height) };
+    browserShown = true;
+    applyBrowserVisibility();
+    if (!modalOpen) browserView.webContents.focus();
+  });
+  ipcMain.handle('browser:hide', () => {
+    browserShown = false;
+    applyBrowserVisibility();
+  });
+  ipcMain.handle('browser:go', (_e, text) => {
+    const url = normalizeBrowserInput(text);
+    if (!url || !browserView) return { ok: false, message: 'Solo se pueden abrir direcciones http y https' };
+    browserView.webContents.loadURL(url);
+    browserView.webContents.focus();
+    return { ok: true };
+  });
+  ipcMain.handle('browser:nav', (_e, action) => {
+    if (!browserView) return;
+    const wc = browserView.webContents;
+    const h = wc.navigationHistory;
+    if (action === 'back') (h ? h.canGoBack() && h.goBack() : wc.canGoBack() && wc.goBack());
+    else if (action === 'forward') (h ? h.canGoForward() && h.goForward() : wc.canGoForward() && wc.goForward());
+    else if (action === 'reload') wc.reload();
+    else if (action === 'stop') wc.stop();
+  });
+  ipcMain.handle('browser:external', () => {
+    const u = browserView ? browserView.webContents.getURL() : '';
+    if (/^https?:\/\//i.test(u)) shell.openExternal(u);
   });
 
   // ---- Explorador de archivos interno ----

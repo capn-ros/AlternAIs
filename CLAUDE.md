@@ -208,3 +208,12 @@ Reglas del `cd.zip` (si lo regenerás):
 # desde la raíz del proyecto (donde están android/, windows/, .github/)
 zip -r cd.zip . -x "cd.zip" -x ".git/*" -x "*/node_modules/*" -x "*/dist/*" -x "*/.gradle/*" -x "android/app/build/*"
 ```
+
+## Mensajes como cajón y navegador interno universal
+
+- Mensajes guardados ya no son diálogo/bottom sheet: son un cajón (Android `Snippets.kt` `SnippetsPanel`; Windows `<aside id="snippets">`).
+- Navegador interno universal (no ligado a cuentas), con su propia sesión (Android perfil `browser`, Windows partición `persist:browser`):
+  - Android: `Browser.kt` `BrowserPanel`, botón `btnBrowser` a la izquierda de `btnFiles`. Los paneles se coordinan con `closePanelsExcept`, `anyPanelOpen`, `panelHit`.
+  - Windows: `<aside id="browser">` + `WebContentsView` nativo (`ensureBrowser` en main.js) posicionado sobre `#br-body` con `browser:show(rect)`; se oculta al salir del panel. Atajos: Ctrl+B abre/cierra, Ctrl+L foco en la URL, Alt+←/→, Ctrl+R.
+  - `setPanel` en app.js maneja settings/files/snippets/browser (uno abierto a la vez).
+- Cuidado al editar index.html: no borrar `dlg-prompt` (lo usa el explorador).

@@ -174,6 +174,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnMore: ImageButton
     private lateinit var btnSnippets: ImageButton
     private lateinit var btnFiles: ImageButton
+    private lateinit var btnBrowser: ImageButton
     private lateinit var timeBar: TimeBar
     private lateinit var dockBg: GradientDrawable
     private var dockCollapsed = false
@@ -301,6 +302,7 @@ class MainActivity : AppCompatActivity() {
         btnMore.setOnClickListener { showMoreMenu() }
         btnSnippets.setOnClickListener { showSnippets() }
         btnFiles.setOnClickListener { setExplorerOpen(!explorerOpen) }
+        btnBrowser.setOnClickListener { setBrowserOpen(!browserOpen) }
         findViewById<MaterialButton>(R.id.btnRetry).setOnClickListener { retryCurrent() }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -309,8 +311,16 @@ class MainActivity : AppCompatActivity() {
                     finishTutorial()
                     return
                 }
+                if (browserOpen) {
+                    if (browser?.onBack() != true) setBrowserOpen(false)
+                    return
+                }
                 if (explorerOpen) {
                     if (explorer?.onBack() != true) setExplorerOpen(false)
+                    return
+                }
+                if (snippetsOpen) {
+                    setSnippetsOpen(false)
                     return
                 }
                 if (drawerOpen) {
@@ -385,6 +395,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         if (explorerOpen) explorer?.refresh() // por si volvió de darle el permiso de archivos
         webViews.values.forEach { it.onResume() }
+        browser?.webView?.onResume()
         handler.post(ticker)
         scheduleAutoHide()
         startEmptyAnim()
@@ -402,6 +413,7 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(ticker)
         handler.removeCallbacks(autoHide)
         emptyAnim?.cancel()
+        browser?.webView?.onPause()
         webViews.values.forEach {
             rememberPage(it, it.url)
             it.onPause()
@@ -420,6 +432,10 @@ class MainActivity : AppCompatActivity() {
             wv.destroy()
         }
         webViews.clear()
+        (browser?.webView ?: savedBrowserWebView)?.let { wv ->
+            (wv.parent as? ViewGroup)?.removeView(wv)
+            wv.destroy()
+        }
         super.onDestroy()
     }
 
@@ -453,7 +469,7 @@ class MainActivity : AppCompatActivity() {
         if (open == explorerOpen) return
         explorerOpen = open
         if (open) {
-            setDrawerOpen(false)
+            closePanelsExcept("files")
             val ex = explorer ?: FileExplorer(this, explorerHost).also {
                 explorer = it
                 container.addView(
@@ -479,20 +495,162 @@ class MainActivity : AppCompatActivity() {
             v.animate().translationY(v.height.toFloat()).setDuration(200).withEndAction {
                 if (!explorerOpen) {
                     v.visibility = View.GONE
-                    if (!drawerOpen) setDockMerged(false)
+                    if (!anyPanelOpen()) setDockMerged(false)
                 }
             }.start()
         }
     }
 
-    /** Si cambia el tema o la IA, el explorador se rearma con los colores nuevos la próxima vez. */
-    private fun resetExplorer() {
-        val ex = explorer ?: return
-        container.removeView(ex.view)
-        explorer = null
-        if (explorerOpen) {
+    /** Si cambia el tema o la IA, los cajones se rearman con los colores nuevos (el navegador conserva su página). */
+    private fun resetPanels() {
+        explorer?.let { container.removeView(it.view); explorer = null }
+        snippetsPanel?.let { container.removeView(it.view); snippetsPanel = null }
+        browser?.let {
+            savedBrowserWebView = it.detachWebView()
+            container.removeView(it.view)
+            browser = null
+        }
+        if (explorerOpen || snippetsOpen || browserOpen) {
             explorerOpen = false
+            snippetsOpen = false
+            browserOpen = false
             if (!drawerOpen) setDockMerged(false)
+        }
+    }
+
+    // ---------------------------------------------------------------- Cajones: mensajes y navegador
+
+    private var snippetsPanel: SnippetsPanel? = null
+    private var snippetsOpen = false
+    private var browser: BrowserPanel? = null
+    private var browserOpen = false
+    private var savedBrowserWebView: WebView? = null
+
+    private fun anyPanelOpen(): Boolean = drawerOpen || explorerOpen || snippetsOpen || browserOpen
+
+    private fun closePanelsExcept(keep: String) {
+        if (keep != "settings") setDrawerOpen(false)
+        if (keep != "files") setExplorerOpen(false)
+        if (keep != "snippets") setSnippetsOpen(false)
+        if (keep != "browser") setBrowserOpen(false)
+    }
+
+    /** ¿El toque cayó dentro de alguno de los cajones grandes abiertos? */
+    private fun panelHit(ev: MotionEvent): Boolean =
+        (explorerOpen && explorer?.view?.let { hit(it, ev) } == true) ||
+            (snippetsOpen && snippetsPanel?.view?.let { hit(it, ev) } == true) ||
+            (browserOpen && browser?.view?.let { hit(it, ev) } == true)
+
+    private fun slideIn(v: View) {
+        v.animate().cancel()
+        v.visibility = View.VISIBLE
+        v.bringToFront()
+        v.doOnLayout {
+            it.translationY = it.height.toFloat()
+            it.animate().translationY(0f).setDuration(260).setInterpolator(DecelerateInterpolator(1.6f)).start()
+        }
+    }
+
+    private fun slideOut(v: View, stillOpen: () -> Boolean) {
+        v.animate().cancel()
+        v.animate().translationY(v.height.toFloat()).setDuration(200).withEndAction {
+            if (!stillOpen()) {
+                v.visibility = View.GONE
+                if (!anyPanelOpen()) setDockMerged(false)
+            }
+        }.start()
+    }
+
+    private val snippetsHost = object : SnippetsHost {
+        override fun surface(): Int = store.surface
+        override fun onSurface(): Int = store.onSurface
+        override fun accent(): Int = this@MainActivity.accent()
+        override fun border(): Int =
+            if (borderColor != 0) borderColor else ColorUtils.setAlphaComponent(store.onSurface, 60)
+        override fun close() = setSnippetsOpen(false)
+        override fun message(text: String) = snack(text)
+        override fun insert(text: String) = insertIntoPage(text)
+        override fun snippets(): List<String> = store.snippets
+        override fun saveSnippets(list: List<String>) {
+            store.snippets = list
+        }
+    }
+
+    private val browserHost = object : BrowserHost {
+        override fun surface(): Int = store.surface
+        override fun onSurface(): Int = store.onSurface
+        override fun accent(): Int = this@MainActivity.accent()
+        override fun border(): Int =
+            if (borderColor != 0) borderColor else ColorUtils.setAlphaComponent(store.onSurface, 60)
+        override fun close() = setBrowserOpen(false)
+        override fun message(text: String) = snack(text)
+        override fun multiProfile(): Boolean = multiProfileOk
+        override fun chooseFile(callback: ValueCallback<Array<Uri>>, params: WebChromeClient.FileChooserParams): Boolean {
+            pendingFileCallback?.onReceiveValue(null)
+            pendingFileCallback = callback
+            return try {
+                fileLauncher.launch(params.createIntent())
+                true
+            } catch (e: Exception) {
+                pendingFileCallback = null
+                callback.onReceiveValue(null)
+                false
+            }
+        }
+        override fun download(wv: WebView, url: String, ua: String?, cd: String?, mime: String?) =
+            handleDownload(wv, url, ua, cd, mime)
+    }
+
+    /** Mensajes guardados: cajón con la lista; tocar uno lo escribe en el chat de la cuenta activa. */
+    private fun showSnippets() = setSnippetsOpen(!snippetsOpen)
+
+    private fun setSnippetsOpen(open: Boolean) {
+        if (open == snippetsOpen) return
+        if (open && currentId == null) {
+            snack("Primero abrí una cuenta")
+            return
+        }
+        snippetsOpen = open
+        if (open) {
+            closePanelsExcept("snippets")
+            val p = snippetsPanel ?: SnippetsPanel(this, snippetsHost).also {
+                snippetsPanel = it
+                container.addView(
+                    it.view,
+                    FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, (container.height * 62) / 100, Gravity.BOTTOM
+                    )
+                )
+            }
+            setDockMerged(true)
+            p.open()
+            slideIn(p.view)
+        } else {
+            snippetsPanel?.view?.let { slideOut(it) { snippetsOpen } }
+        }
+    }
+
+    /** Navegador web interno (universal, con su propia sesión): cajón casi a pantalla completa. */
+    private fun setBrowserOpen(open: Boolean) {
+        if (open == browserOpen) return
+        browserOpen = open
+        if (open) {
+            closePanelsExcept("browser")
+            val p = browser ?: BrowserPanel(this, browserHost, savedBrowserWebView).also {
+                browser = it
+                savedBrowserWebView = null
+                container.addView(
+                    it.view,
+                    FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.BOTTOM
+                    ).apply { topMargin = dp(28) }
+                )
+            }
+            setDockMerged(true)
+            p.open()
+            slideIn(p.view)
+        } else {
+            browser?.view?.let { slideOut(it) { browserOpen } }
         }
     }
 
@@ -576,7 +734,7 @@ class MainActivity : AppCompatActivity() {
         if (::emptyView.isInitialized) recolorTexts(emptyView, store.onSurface)
         if (::errorView.isInitialized) recolorTexts(errorView, store.onSurface)
         paintServiceTabs()
-        resetExplorer()
+        resetPanels()
     }
 
     private fun recolorTexts(v: View, color: Int) {
@@ -685,6 +843,7 @@ class MainActivity : AppCompatActivity() {
         btnMore.visibility = if (collapsed) View.GONE else View.VISIBLE
         btnSnippets.visibility = if (collapsed) View.GONE else View.VISIBLE
         btnFiles.visibility = if (collapsed) View.GONE else View.VISIBLE
+        btnBrowser.visibility = if (collapsed) View.GONE else View.VISIBLE
         if (collapsed) setDrawerOpen(false)
         btnToggleDock.animate().rotation(if (collapsed) 180f else 0f).setDuration(220).start()
         scheduleAutoHide()
@@ -772,6 +931,7 @@ class MainActivity : AppCompatActivity() {
         btnMore.imageTintList = ColorStateList.valueOf(c)
         btnSnippets.imageTintList = ColorStateList.valueOf(c)
         btnFiles.imageTintList = ColorStateList.valueOf(c)
+        btnBrowser.imageTintList = ColorStateList.valueOf(c)
         btnToggleDock.imageTintList = ColorStateList.valueOf(c)
         drawerCaption?.setTextColor(c)
         paintServiceTabs()
@@ -987,7 +1147,7 @@ class MainActivity : AppCompatActivity() {
         drawerOpen = open
         drawer.animate().cancel()
         if (open) {
-            if (explorerOpen) setExplorerOpen(false)
+            closePanelsExcept("settings")
             drawerSwitch.isChecked = store.bubbleEnabled && BubbleService.canDraw(this)
             setDockMerged(true)
             drawer.alpha = 0f
@@ -1003,7 +1163,7 @@ class MainActivity : AppCompatActivity() {
                 .withEndAction {
                     if (!drawerOpen) {
                         drawer.visibility = View.GONE
-                        if (!explorerOpen) setDockMerged(false)
+                        if (!anyPanelOpen()) setDockMerged(false)
                     }
                 }.start()
         }
@@ -1021,7 +1181,7 @@ class MainActivity : AppCompatActivity() {
         if (!tutorialActive && ev.actionMasked == MotionEvent.ACTION_DOWN && ::dock.isInitialized && ::drawer.isInitialized &&
             !dockCollapsed && accounts.isNotEmpty() && dock.visibility == View.VISIBLE &&
             !hit(dock, ev) && !(drawerOpen && hit(drawer, ev)) &&
-            !(explorerOpen && explorer?.view?.let { hit(it, ev) } == true)
+            !(panelHit(ev))
         ) {
             setDockCollapsed(true, true)
         }
@@ -1090,6 +1250,8 @@ class MainActivity : AppCompatActivity() {
             b.contentDescription = desc
             return b
         }
+        val web = iconButton(R.id.btnBrowser, R.drawable.ic_globe, "Navegador")
+        row.addView(web, LinearLayout.LayoutParams(dp(42), dp(42)))
         val files = iconButton(R.id.btnFiles, R.drawable.ic_folder, "Archivos")
         row.addView(files, LinearLayout.LayoutParams(dp(42), dp(42)))
         val snip = iconButton(R.id.btnSnippets, R.drawable.ic_message, "Mensajes guardados")
@@ -1124,6 +1286,7 @@ class MainActivity : AppCompatActivity() {
         btnMore = more
         btnSnippets = snip
         btnFiles = files
+        btnBrowser = web
         btnToggleDock = toggle
         chipScroll = scroll
         chipGroup = group
@@ -1878,98 +2041,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ---------------------------------------------------------------- Mensajes guardados
-
-    /**
-     * Hoja con los mensajes guardados: tocar uno lo escribe en la caja de chat de la cuenta activa
-     * (no lo envía, para que puedas completarlo). Mantener apretado uno lo edita o lo borra.
-     */
-    private fun showSnippets() {
-        if (currentId == null) {
-            snack("Primero abrí una cuenta")
-            return
-        }
-        val sheet = BottomSheetDialog(this)
-        val col = sheetColumn()
-        sheetHeader(col, "Mensajes guardados", "Tocá uno para escribirlo en el chat · mantené apretado para editarlo", null)
-        sheetRow(col, sheet, "Escribir texto propio…", R.drawable.ic_edit) { showSnippetEditor(null, insertNow = true) }
-        store.snippets.forEachIndexed { i, text ->
-            val row = sheetRow(col, sheet, text.replace('\n', ' '), R.drawable.ic_message) { insertIntoPage(text) }
-            row.maxLines = 2
-            row.ellipsize = android.text.TextUtils.TruncateAt.END
-            row.setOnLongClickListener {
-                sheet.dismiss()
-                showSnippetActions(i)
-                true
-            }
-        }
-        sheetRow(col, sheet, "Agregar mensaje guardado…", R.drawable.ic_add) { showSnippetEditor(null, insertNow = false) }
-        val scroll = android.widget.ScrollView(this)
-        scroll.addView(col)
-        sheet.setContentView(scroll)
-        sheet.show()
-    }
-
-    private fun showSnippetActions(index: Int) {
-        val list = store.snippets
-        val text = list.getOrNull(index) ?: return
-        val sheet = BottomSheetDialog(this)
-        val col = sheetColumn()
-        sheetHeader(col, "Mensaje guardado", text.take(80), null)
-        sheetRow(col, sheet, "Escribir en el chat", R.drawable.ic_message) { insertIntoPage(text) }
-        sheetRow(col, sheet, "Editar", R.drawable.ic_edit) { showSnippetEditor(index, insertNow = false) }
-        if (index > 0) sheetRow(col, sheet, "Subir", R.drawable.ic_expand) {
-            val m = list.toMutableList(); m.add(index - 1, m.removeAt(index)); store.snippets = m; showSnippets()
-        }
-        sheetRow(col, sheet, "Borrar", R.drawable.ic_trash) {
-            store.snippets = list.toMutableList().also { it.removeAt(index) }
-            snack("Mensaje borrado")
-        }
-        sheet.setContentView(col)
-        sheet.show()
-    }
-
-    /** Editor de un mensaje: `index` null = nuevo. Con `insertNow`, además de guardarlo opcionalmente lo escribe en el chat. */
-    private fun showSnippetEditor(index: Int?, insertNow: Boolean) {
-        val list = store.snippets
-        val input = com.google.android.material.textfield.TextInputEditText(this)
-        input.setText(if (index != null) list.getOrNull(index) ?: "" else "")
-        input.minLines = 3
-        input.maxLines = 8
-        input.gravity = Gravity.TOP or Gravity.START
-        input.inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
-            android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-        input.hint = "Escribí tu mensaje"
-        val holder = FrameLayout(this)
-        holder.setPadding(dp(20), dp(8), dp(20), 0)
-        holder.addView(input, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        val b = MaterialAlertDialogBuilder(this)
-            .setTitle(if (insertNow) "Texto propio" else if (index == null) "Nuevo mensaje guardado" else "Editar mensaje")
-            .setView(holder)
-            .setNegativeButton("Cancelar", null)
-        if (insertNow) {
-            b.setPositiveButton("Escribir en el chat") { _, _ ->
-                val t = input.text?.toString().orEmpty()
-                if (t.isNotBlank()) insertIntoPage(t)
-            }
-            b.setNeutralButton("Guardar y escribir") { _, _ ->
-                val t = input.text?.toString().orEmpty()
-                if (t.isNotBlank()) {
-                    store.snippets = list + t
-                    insertIntoPage(t)
-                }
-            }
-        } else {
-            b.setPositiveButton("Guardar") { _, _ ->
-                val t = input.text?.toString().orEmpty()
-                if (t.isBlank()) return@setPositiveButton
-                store.snippets = if (index == null) list + t else list.toMutableList().also { it[index] = t }
-                snack("Mensaje guardado")
-            }
-        }
-        val dlg = b.show()
-        input.requestFocus()
-        dlg.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
-    }
 
     /**
      * Escribe `text` en la caja de chat de la página activa: en el campo que tenga el foco o, si no hay
