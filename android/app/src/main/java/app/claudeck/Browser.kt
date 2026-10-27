@@ -178,7 +178,7 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
             setStroke(dp(3), host.border())
         }
         view.clipToOutline = true
-        view.setPadding(0, dp(10), 0, 0)
+        view.setPadding(dp(3), dp(10), dp(3), 0) // deja a la vista el borde del cajón a los costados
 
         // Barra: atrás · adelante · recargar · dirección · cerrar
         val bar = LinearLayout(act)
