@@ -14,6 +14,7 @@ const {
   dialog,
 } = require('electron');
 const path = require('path');
+const fileops = require('./fileops');
 const fs = require('fs');
 const crypto = require('crypto');
 
@@ -411,6 +412,9 @@ function handleShortcut(event, input) {
   } else if (key.toLowerCase() === 'r') {
     event.preventDefault();
     if (state.selectedId) reloadView(state.selectedId);
+  } else if (key.toLowerCase() === 'e') {
+    event.preventDefault();
+    if (win) win.webContents.send('action', { type: 'files' });
   } else if (key.toLowerCase() === 'm') {
     event.preventDefault();
     if (win && state.selectedId) win.webContents.send('action', { type: 'snippets' });
@@ -605,6 +609,111 @@ function registerIpc() {
     drawerOpen = true;
     showCurrent();
     return snap;
+  });
+
+  // ---- Explorador de archivos interno ----
+  const okPath = (p) => typeof p === 'string' && p.length > 0 && p.length < 4096 && !p.includes('\u0000') && path.isAbsolute(p);
+  const fsReply = async (fn) => {
+    try {
+      return { ok: true, ...(await fn()) };
+    } catch (e) {
+      return { ok: false, message: e && e.userMessage ? e.userMessage : e && e.code === 'EACCES' ? 'Sin permiso para esa operación' : e && e.code === 'EPERM' ? 'Sin permiso (o el archivo está en uso)' : e && e.code === 'EBUSY' ? 'El archivo está en uso' : (e && e.message) || 'No se pudo' };
+    }
+  };
+
+  ipcMain.handle('fs:roots', () => {
+    const items = [];
+    const add = (label, name) => {
+      try {
+        items.push({ label, path: app.getPath(name) });
+      } catch (_) {
+        /* no existe en este sistema */
+      }
+    };
+    add('Descargas', 'downloads');
+    add('Escritorio', 'desktop');
+    add('Documentos', 'documents');
+    add('Imágenes', 'pictures');
+    add('Inicio', 'home');
+    for (const d of fileops.drives()) items.push({ label: d, path: d });
+    return items;
+  });
+
+  ipcMain.handle('fs:list', (_e, dir) =>
+    fsReply(async () => {
+      if (!okPath(dir)) throw new Error('Ruta no válida');
+      const resolved = path.resolve(dir);
+      const entries = await fileops.list(resolved);
+      const parent = path.dirname(resolved);
+      return { dir: resolved, parent: parent === resolved ? null : parent, entries };
+    })
+  );
+
+  const manyPaths = (paths) => Array.isArray(paths) && paths.length > 0 && paths.length < 5000 && paths.every(okPath);
+
+  ipcMain.handle('fs:copy', (_e, paths, dest) =>
+    fsReply(async () => {
+      if (!manyPaths(paths) || !okPath(dest)) throw new Error('Ruta no válida');
+      for (const p of paths) await fileops.copyOne(p, dest);
+      return { message: `Copiados: ${paths.length}` };
+    })
+  );
+
+  ipcMain.handle('fs:move', (_e, paths, dest) =>
+    fsReply(async () => {
+      if (!manyPaths(paths) || !okPath(dest)) throw new Error('Ruta no válida');
+      for (const p of paths) await fileops.moveOne(p, dest);
+      return { message: `Movidos: ${paths.length}` };
+    })
+  );
+
+  // Borrar manda los elementos a la Papelera de reciclaje (se pueden recuperar).
+  ipcMain.handle('fs:delete', (_e, paths) =>
+    fsReply(async () => {
+      if (!manyPaths(paths)) throw new Error('Ruta no válida');
+      let n = 0;
+      for (const p of paths) {
+        await shell.trashItem(p);
+        n++;
+      }
+      return { message: `Enviados a la Papelera: ${n}` };
+    })
+  );
+
+  ipcMain.handle('fs:rename', (_e, p, name) =>
+    fsReply(async () => {
+      if (!okPath(p)) throw new Error('Ruta no válida');
+      const target = await fileops.renameOne(p, name);
+      return { message: `Ahora se llama «${path.basename(target)}»` };
+    })
+  );
+
+  ipcMain.handle('fs:mkdir', (_e, dir, name) =>
+    fsReply(async () => {
+      if (!okPath(dir)) throw new Error('Ruta no válida');
+      const target = await fileops.mkdirOne(dir, name);
+      return { message: `Carpeta «${path.basename(target)}» creada` };
+    })
+  );
+
+  ipcMain.handle('fs:unzip', (_e, zip, dest) =>
+    fsReply(async () => {
+      if (!okPath(zip) || !okPath(dest)) throw new Error('Ruta no válida');
+      if (!/\.zip$/i.test(zip)) throw new Error('No es un archivo .zip');
+      await fileops.unzip(zip, dest);
+      return { message: `Extraído en «${path.basename(dest)}»` };
+    })
+  );
+
+  ipcMain.handle('fs:open', async (_e, p) => {
+    if (!okPath(p)) return { ok: false, message: 'Ruta no válida' };
+    const err = await shell.openPath(p);
+    return err ? { ok: false, message: err } : { ok: true };
+  });
+
+  ipcMain.handle('fs:reveal', (_e, p) => {
+    if (okPath(p)) shell.showItemInFolder(p);
+    return { ok: true };
   });
 
   // Mensajes guardados: la lista la edita el renderer; escribir en el chat lo hace el proceso principal.

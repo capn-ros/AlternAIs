@@ -173,6 +173,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnToggleDock: ImageButton
     private lateinit var btnMore: ImageButton
     private lateinit var btnSnippets: ImageButton
+    private lateinit var btnFiles: ImageButton
     private lateinit var timeBar: TimeBar
     private lateinit var dockBg: GradientDrawable
     private var dockCollapsed = false
@@ -299,12 +300,17 @@ class MainActivity : AppCompatActivity() {
         btnToggleDock.setOnClickListener { setDockCollapsed(!dockCollapsed, true) }
         btnMore.setOnClickListener { showMoreMenu() }
         btnSnippets.setOnClickListener { showSnippets() }
+        btnFiles.setOnClickListener { setExplorerOpen(!explorerOpen) }
         findViewById<MaterialButton>(R.id.btnRetry).setOnClickListener { retryCurrent() }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (tutorialActive) {
                     finishTutorial()
+                    return
+                }
+                if (explorerOpen) {
+                    if (explorer?.onBack() != true) setExplorerOpen(false)
                     return
                 }
                 if (drawerOpen) {
@@ -377,6 +383,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (explorerOpen) explorer?.refresh() // por si volvió de darle el permiso de archivos
         webViews.values.forEach { it.onResume() }
         handler.post(ticker)
         scheduleAutoHide()
@@ -414,6 +421,79 @@ class MainActivity : AppCompatActivity() {
         }
         webViews.clear()
         super.onDestroy()
+    }
+
+    // ---------------------------------------------------------------- Explorador de archivos
+
+    private var explorer: FileExplorer? = null
+    private var explorerOpen = false
+
+    private val legacyStorageLauncher =
+        registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()) {
+            explorer?.refresh()
+        }
+
+    private val explorerHost = object : ExplorerHost {
+        override fun surface(): Int = store.surface
+        override fun onSurface(): Int = store.onSurface
+        override fun accent(): Int = this@MainActivity.accent()
+        override fun border(): Int =
+            if (borderColor != 0) borderColor else ColorUtils.setAlphaComponent(store.onSurface, 60)
+        override fun close() = setExplorerOpen(false)
+        override fun message(text: String) = snack(text)
+        override fun requestLegacyPermission() {
+            legacyStorageLauncher.launch(
+                arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            )
+        }
+    }
+
+    /** Abre o cierra el explorador de archivos: un cajón grande, como el de ajustes, que sube desde la barra. */
+    private fun setExplorerOpen(open: Boolean) {
+        if (open == explorerOpen) return
+        explorerOpen = open
+        if (open) {
+            setDrawerOpen(false)
+            val ex = explorer ?: FileExplorer(this, explorerHost).also {
+                explorer = it
+                container.addView(
+                    it.view,
+                    FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.BOTTOM
+                    ).apply { topMargin = dp(28) }
+                )
+            }
+            setDockMerged(true)
+            ex.view.animate().cancel()
+            ex.view.visibility = View.VISIBLE
+            ex.view.bringToFront()
+            ex.open()
+            ex.view.doOnLayout {
+                it.translationY = it.height.toFloat()
+                it.animate().translationY(0f).setDuration(260)
+                    .setInterpolator(DecelerateInterpolator(1.6f)).start()
+            }
+        } else {
+            val v = explorer?.view ?: return
+            v.animate().cancel()
+            v.animate().translationY(v.height.toFloat()).setDuration(200).withEndAction {
+                if (!explorerOpen) {
+                    v.visibility = View.GONE
+                    if (!drawerOpen) setDockMerged(false)
+                }
+            }.start()
+        }
+    }
+
+    /** Si cambia el tema o la IA, el explorador se rearma con los colores nuevos la próxima vez. */
+    private fun resetExplorer() {
+        val ex = explorer ?: return
+        container.removeView(ex.view)
+        explorer = null
+        if (explorerOpen) {
+            explorerOpen = false
+            if (!drawerOpen) setDockMerged(false)
+        }
     }
 
     /** Recarga la página de una cuenta mostrando el logo animado hasta que termine. */
@@ -496,6 +576,7 @@ class MainActivity : AppCompatActivity() {
         if (::emptyView.isInitialized) recolorTexts(emptyView, store.onSurface)
         if (::errorView.isInitialized) recolorTexts(errorView, store.onSurface)
         paintServiceTabs()
+        resetExplorer()
     }
 
     private fun recolorTexts(v: View, color: Int) {
@@ -603,6 +684,7 @@ class MainActivity : AppCompatActivity() {
         timeBar.visibility = if (collapsed) View.VISIBLE else View.GONE
         btnMore.visibility = if (collapsed) View.GONE else View.VISIBLE
         btnSnippets.visibility = if (collapsed) View.GONE else View.VISIBLE
+        btnFiles.visibility = if (collapsed) View.GONE else View.VISIBLE
         if (collapsed) setDrawerOpen(false)
         btnToggleDock.animate().rotation(if (collapsed) 180f else 0f).setDuration(220).start()
         scheduleAutoHide()
@@ -689,6 +771,7 @@ class MainActivity : AppCompatActivity() {
         val c = accent()
         btnMore.imageTintList = ColorStateList.valueOf(c)
         btnSnippets.imageTintList = ColorStateList.valueOf(c)
+        btnFiles.imageTintList = ColorStateList.valueOf(c)
         btnToggleDock.imageTintList = ColorStateList.valueOf(c)
         drawerCaption?.setTextColor(c)
         paintServiceTabs()
@@ -904,6 +987,7 @@ class MainActivity : AppCompatActivity() {
         drawerOpen = open
         drawer.animate().cancel()
         if (open) {
+            if (explorerOpen) setExplorerOpen(false)
             drawerSwitch.isChecked = store.bubbleEnabled && BubbleService.canDraw(this)
             setDockMerged(true)
             drawer.alpha = 0f
@@ -919,7 +1003,7 @@ class MainActivity : AppCompatActivity() {
                 .withEndAction {
                     if (!drawerOpen) {
                         drawer.visibility = View.GONE
-                        setDockMerged(false)
+                        if (!explorerOpen) setDockMerged(false)
                     }
                 }.start()
         }
@@ -936,7 +1020,8 @@ class MainActivity : AppCompatActivity() {
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         if (!tutorialActive && ev.actionMasked == MotionEvent.ACTION_DOWN && ::dock.isInitialized && ::drawer.isInitialized &&
             !dockCollapsed && accounts.isNotEmpty() && dock.visibility == View.VISIBLE &&
-            !hit(dock, ev) && !(drawerOpen && hit(drawer, ev))
+            !hit(dock, ev) && !(drawerOpen && hit(drawer, ev)) &&
+            !(explorerOpen && explorer?.view?.let { hit(it, ev) } == true)
         ) {
             setDockCollapsed(true, true)
         }
@@ -1005,6 +1090,8 @@ class MainActivity : AppCompatActivity() {
             b.contentDescription = desc
             return b
         }
+        val files = iconButton(R.id.btnFiles, R.drawable.ic_folder, "Archivos")
+        row.addView(files, LinearLayout.LayoutParams(dp(42), dp(42)))
         val snip = iconButton(R.id.btnSnippets, R.drawable.ic_message, "Mensajes guardados")
         row.addView(snip, LinearLayout.LayoutParams(dp(42), dp(42)))
         val more = iconButton(R.id.btnMore, R.drawable.ic_settings, "Ajustes")
@@ -1036,6 +1123,7 @@ class MainActivity : AppCompatActivity() {
         info = name
         btnMore = more
         btnSnippets = snip
+        btnFiles = files
         btnToggleDock = toggle
         chipScroll = scroll
         chipGroup = group

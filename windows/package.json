@@ -24,6 +24,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "fileops.js",
       "renderer/**/*",
       "package.json"
     ],

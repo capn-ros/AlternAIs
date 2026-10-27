@@ -197,7 +197,7 @@ function renderTopbar() {
 // ---------------------------------------------------------------- Diálogos
 
 function openDialog(dlg) {
-  setDrawer(false);
+  setPanel(null);
   window.api.modal(true);
   dlg.showModal();
 }
@@ -421,30 +421,61 @@ function hideSnap() {
   $('#snap').hidden = true;
   $('#snap-img').removeAttribute('src');
 }
-$('#snap').addEventListener('click', () => setDrawer(false));
+$('#snap').addEventListener('click', () => setPanel(null));
 
-function setDrawer(open, fromMain = false) {
-  if (open === drawerOpen) return;
-  drawerOpen = open;
+// Un solo panel abierto a la vez (ajustes o archivos): ambos comparten la captura de la página.
+let activePanel = null; // 'settings' | 'files' | null
+let filesOpen = false;
+const PANEL_IDS = { settings: '#drawer', files: '#files' };
+
+function setPanel(name, fromMain = false) {
+  if (name === activePanel) return;
+  const prev = activePanel;
+  activePanel = name;
+  drawerOpen = name === 'settings';
+  filesOpen = name === 'files';
   const token = ++drawerToken;
-  const d = $('#drawer');
-  d.setAttribute('aria-hidden', String(!open));
-  $('#settings').classList.toggle('on', open);
-  if (open) {
-    // La página se congela en una captura (las vistas se dibujan sobre el HTML) y el cajón sale encima, con desenfoque.
-    window.api.drawer(true).then((snap) => {
-      if (token !== drawerToken) return;
-      showSnap(snap);
+  if (prev) {
+    const p = $(PANEL_IDS[prev]);
+    p.classList.remove('open');
+    p.setAttribute('aria-hidden', 'true');
+  }
+  $('#settings').classList.toggle('on', drawerOpen);
+  $('#btn-files').classList.toggle('on', filesOpen);
+  if (name) {
+    const d = $(PANEL_IDS[name]);
+    d.setAttribute('aria-hidden', 'false');
+    const reveal = () => {
       requestAnimationFrame(() => d.classList.add('open'));
-    });
+      if (name === 'files') filesOpened();
+    };
+    if (prev) {
+      reveal(); // la captura de la página ya está puesta
+    } else {
+      // La página se congela en una captura (las vistas se dibujan sobre el HTML) y el cajón sale encima, con desenfoque.
+      window.api.drawer(true).then((snap) => {
+        if (token !== drawerToken) return;
+        showSnap(snap);
+        reveal();
+      });
+    }
   } else {
-    d.classList.remove('open');
     setTimeout(() => {
       if (token !== drawerToken) return;
       if (!fromMain) window.api.drawer(false);
       hideSnap();
     }, 240);
   }
+}
+
+function setDrawer(open, fromMain = false) {
+  if (open) setPanel('settings', fromMain);
+  else if (activePanel === 'settings') setPanel(null, fromMain);
+}
+
+function setFiles(open, fromMain = false) {
+  if (open) setPanel('files', fromMain);
+  else if (activePanel === 'files') setPanel(null, fromMain);
 }
 
 $('#settings').addEventListener('click', () => setDrawer(!drawerOpen));
@@ -652,13 +683,16 @@ window.api.onState((s) => {
 
 window.api.onAction((a) => {
   if (a.type === 'drawer-closed') {
-    setDrawer(false, true);
+    setPanel(null, true);
     return;
   }
   const acc = state.accounts.find((x) => x.id === a.id);
   switch (a.type) {
     case 'add':
       if (!document.querySelector('dialog[open]')) openAccountDialog(null);
+      break;
+    case 'files':
+      if (!document.querySelector('dialog[open]')) setFiles(!filesOpen);
       break;
     case 'snippets':
       if (!document.querySelector('dialog[open]')) openSnippets();
@@ -697,3 +731,369 @@ window.api.onAction((a) => {
   // Refresca los contadores de descanso.
   setInterval(render, 30000);
 })();
+
+// ---------------------------------------------------------------- Explorador de archivos
+
+const FX_ICONS = {
+  folder: 'M3,7a2,2 0 0,1 2,-2h4l2,2h8a2,2 0 0,1 2,2v8a2,2 0 0,1 -2,2H5a2,2 0 0,1 -2,-2z',
+  file: 'M7,3h7l5,5v11a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V5a2,2 0 0,1 2,-2z M14,3v5h5',
+  zip: 'M7,3h7l5,5v11a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V5a2,2 0 0,1 2,-2z M14,3v5h5 M10,10h2 M10,13h2 M10,16h2',
+  up: 'M12,19V6 M6,11l6,-6l6,6',
+  close: 'M6,6l12,12 M18,6L6,18',
+  sort: 'M7,4v16 M4,17l3,3l3,-3 M17,20V4 M14,7l3,-3l3,3',
+  copy: 'M9,9h10a1,1 0 0,1 1,1v10a1,1 0 0,1 -1,1H9a1,1 0 0,1 -1,-1V10a1,1 0 0,1 1,-1z M5,15H4a1,1 0 0,1 -1,-1V4a1,1 0 0,1 1,-1h10a1,1 0 0,1 1,1v1',
+  move: 'M4,12h13 M13,8l4,4l-4,4 M20,5v14',
+  paste: 'M9,4h6v3H9z M7,5H6a1,1 0 0,0 -1,1v14a1,1 0 0,0 1,1h12a1,1 0 0,0 1,-1V6a1,1 0 0,0 -1,-1h-1',
+  newfolder: 'M3,7a2,2 0 0,1 2,-2h4l2,2h8a2,2 0 0,1 2,2v8a2,2 0 0,1 -2,2H5a2,2 0 0,1 -2,-2z M12,10v6 M9,13h6',
+  trash: 'M5,7h14 M10,7V5h4v2 M7,7l1,12h8l1,-12 M10,11v5 M14,11v5',
+  edit: 'M4,20l1,-4l10.5,-10.5a2,2 0 0,1 2.8,0l0.7,0.7a2,2 0 0,1 0,2.8L8.5,19.5z M14,7.5l2.5,2.5',
+  extract: 'M12,4v11 M7.5,11l4.5,4.5l4.5,-4.5 M5,20h14',
+  open: 'M14,4h6v6 M20,4l-9,9 M18,14v5a1,1 0 0,1 -1,1H5a1,1 0 0,1 -1,-1V7a1,1 0 0,1 1,-1h5',
+  all: 'M4,4h16v16H4z M8,12l3,3l5,-6',
+};
+function fxIcon(name, cls) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  if (cls) svg.setAttribute('class', cls);
+  const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  p.setAttribute('d', FX_ICONS[name]);
+  svg.append(p);
+  return svg;
+}
+
+const fx = {
+  dir: null, parent: null, entries: [], sel: new Set(), last: null,
+  clip: { paths: [], cut: false }, sort: 'date', places: [], busy: false, started: false,
+};
+const FX_SORTS = { date: 'Fecha', name: 'Nombre', size: 'Tamaño' };
+
+$('#fx-up').append(fxIcon('up'));
+$('#fx-close').append(fxIcon('close'));
+
+function fxJoin(dir, name) {
+  const sep = dir.includes('\\') ? '\\' : '/';
+  return dir.endsWith(sep) ? dir + name : dir + sep + name;
+}
+const fxPaths = () => fx.entries.filter((e) => fx.sel.has(e.name)).map((e) => fxJoin(fx.dir, e.name));
+const fxIsZip = (e) => !e.isDir && /\.zip$/i.test(e.name);
+
+function fxSay(text, busy) {
+  const el = $('#fx-status');
+  el.textContent = text || '';
+  el.classList.toggle('busy', !!busy);
+}
+let fxSayTimer = 0;
+function fxMsg(text) {
+  fxSay(text);
+  clearTimeout(fxSayTimer);
+  fxSayTimer = setTimeout(() => { if (!fx.busy) fxStatusDefault(); }, 5000);
+}
+function fxStatusDefault() {
+  const n = fx.entries.length;
+  const s = fx.sel.size;
+  fxSay(`${n} ${n === 1 ? 'elemento' : 'elementos'}${s ? ` · ${s} ${s === 1 ? 'seleccionado' : 'seleccionados'}` : ''}${fx.clip.paths.length ? ` · para ${fx.clip.cut ? 'mover' : 'copiar'}: ${fx.clip.paths.length}` : ''}`);
+}
+
+function fxFmtSize(b) {
+  if (b < 1024) return `${b} B`;
+  const u = ['KB', 'MB', 'GB', 'TB'];
+  let v = b;
+  let i = -1;
+  do { v /= 1024; i++; } while (v >= 1024 && i < u.length - 1);
+  return `${v >= 10 ? Math.round(v) : v.toFixed(1)} ${u[i]}`;
+}
+const fxFmtDate = (ms) => new Date(ms).toLocaleString('es-AR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+function fxSorted() {
+  const by = {
+    date: (a, b) => b.mtime - a.mtime,
+    name: (a, b) => a.name.localeCompare(b.name, 'es', { numeric: true, sensitivity: 'base' }),
+    size: (a, b) => b.size - a.size,
+  }[fx.sort];
+  return fx.entries.slice().sort((a, b) => (a.isDir !== b.isDir ? (a.isDir ? -1 : 1) : by(a, b)));
+}
+
+async function fxLoad(dir) {
+  fx.busy = true;
+  fxSay('Leyendo…', true);
+  const r = await window.api.fsList(dir);
+  fx.busy = false;
+  if (!r.ok) {
+    fxMsg(r.message || 'No se pudo abrir la carpeta');
+    renderFx();
+    return false;
+  }
+  fx.dir = r.dir;
+  fx.parent = r.parent;
+  fx.entries = r.entries;
+  fx.entries = fxSorted();
+  fx.sel.clear();
+  fx.last = null;
+  renderFx();
+  fxStatusDefault();
+  $('#fx-list').scrollTop = 0;
+  return true;
+}
+
+async function filesOpened() {
+  if (!fx.started) {
+    fx.started = true;
+    fx.places = await window.api.fsRoots();
+    const first = fx.places[0] && fx.places[0].path;
+    if (first) await fxLoad(first);
+  } else if (fx.dir) {
+    fxReload();
+  }
+  $('#files').focus();
+}
+
+async function fxReload() {
+  const keep = new Set(fx.sel);
+  const r = await window.api.fsList(fx.dir);
+  if (!r.ok) return;
+  fx.entries = r.entries;
+  fx.entries = fxSorted();
+  fx.sel = new Set([...keep].filter((n) => fx.entries.some((e) => e.name === n)));
+  renderFx();
+  fxStatusDefault();
+}
+
+async function fxRun(work) {
+  fx.busy = true;
+  fxSay('Trabajando…', true);
+  const r = await work();
+  fx.busy = false;
+  fx.sel.clear();
+  await fxReload();
+  fxMsg(r && r.message ? (r.ok ? r.message : 'No se pudo: ' + r.message) : '');
+}
+
+function fxOpenEntry(e) {
+  const full = fxJoin(fx.dir, e.name);
+  if (e.isDir) fxLoad(full);
+  else window.api.fsOpen(full).then((r) => { if (!r.ok) fxMsg('No se pudo abrir: ' + (r.message || '')); });
+}
+
+function fxSetClip(cut) {
+  const paths = fxPaths();
+  if (!paths.length) return;
+  fx.clip = { paths, cut };
+  fx.sel.clear();
+  renderFx();
+  fxMsg(`${cut ? 'Para mover' : 'Para copiar'}: ${paths.length}. Andá a la carpeta destino y tocá «Pegar aquí»`);
+}
+
+function fxPaste() {
+  if (!fx.clip.paths.length) return;
+  const { paths, cut } = fx.clip;
+  if (cut) fx.clip = { paths: [], cut: false };
+  fxRun(() => (cut ? window.api.fsMove(paths, fx.dir) : window.api.fsCopy(paths, fx.dir)));
+}
+
+function fxDelete() {
+  const paths = fxPaths();
+  if (!paths.length) return;
+  const what = paths.length === 1 ? `«${paths[0].split(/[\\/]/).pop()}»` : `${paths.length} elementos`;
+  openConfirm('Borrar', `Se envía ${what} a la Papelera de reciclaje.`, () => fxRun(() => window.api.fsDelete(paths)));
+  // openConfirm cierra los paneles: el explorador se vuelve a abrir cuando se cierra el diálogo.
+  fx.reopen = true;
+}
+
+let promptAction = null;
+function fxPrompt(title, label, value, okText, action) {
+  $('#pr-title').textContent = title;
+  $('#pr-label').textContent = label;
+  $('#pr-ok').textContent = okText;
+  $('#pr-input').value = value;
+  promptAction = action;
+  fx.reopen = true;
+  openDialog($('#dlg-prompt'));
+  const dot = value.lastIndexOf('.');
+  $('#pr-input').focus();
+  $('#pr-input').setSelectionRange(0, dot > 0 ? dot : value.length);
+}
+$('#form-prompt').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const v = $('#pr-input').value;
+  const act = promptAction;
+  promptAction = null;
+  $('#dlg-prompt').close();
+  if (act) act(v);
+});
+$('#pr-cancel').addEventListener('click', () => { promptAction = null; $('#dlg-prompt').close(); });
+
+function fxRename() {
+  const paths = fxPaths();
+  if (paths.length !== 1) return;
+  const name = paths[0].split(/[\\/]/).pop();
+  fxPrompt('Renombrar', 'Nuevo nombre', name, 'Renombrar', (v) => fxRun(() => window.api.fsRename(paths[0], v)));
+}
+
+function fxNewFolder() {
+  fxPrompt('Nueva carpeta', 'Nombre', '', 'Crear', (v) => fxRun(() => window.api.fsMkdir(fx.dir, v)));
+}
+
+function fxExtract(intoFolder) {
+  const [zip] = fxPaths();
+  if (!zip) return;
+  const base = zip.split(/[\\/]/).pop().replace(/\.zip$/i, '');
+  const dest = intoFolder ? fxJoin(fx.dir, base) : fx.dir;
+  fxRun(() => window.api.fsUnzip(zip, dest));
+}
+
+// Cuando se cierra un diálogo abierto desde el explorador, vuelve el explorador (los diálogos cierran los paneles).
+for (const id of ['#dlg-prompt', '#dlg-confirm']) {
+  $(id).addEventListener('close', () => {
+    if (fx.reopen) {
+      fx.reopen = false;
+      setTimeout(() => setFiles(true), 60);
+    }
+  });
+}
+
+function fxChip(label, icon, onClick, opts) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'fx-chip' + (opts && opts.on ? ' on' : '');
+  b.append(fxIcon(icon), document.createTextNode(label));
+  if (opts && opts.title) b.title = opts.title;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+// Cambia la selección sin rehacer las filas (así el doble clic sobre una fila sigue funcionando).
+function fxSelChanged() {
+  document.querySelectorAll('#fx-list .fx-row').forEach((row, i) => {
+    const e = fx.entries[i];
+    if (!e) return;
+    const on = fx.sel.has(e.name);
+    row.classList.toggle('sel', on);
+    row.setAttribute('aria-selected', String(on));
+  });
+  renderFxBar();
+  fxStatusDefault();
+}
+
+function renderFxBar() {
+  const bar = $('#fx-actions');
+  bar.replaceChildren();
+  const n = fx.sel.size;
+  const only = n === 1 ? fx.entries.find((e) => fx.sel.has(e.name)) : null;
+  if (fx.clip.paths.length) {
+    bar.append(fxChip(`Pegar aquí (${fx.clip.paths.length})`, 'paste', fxPaste, { on: true, title: 'Ctrl+V' }));
+    bar.append(fxChip('Descartar', 'close', () => { fx.clip = { paths: [], cut: false }; renderFx(); fxStatusDefault(); }));
+    const sep = document.createElement('span');
+    sep.className = 'fx-sep';
+    bar.append(sep);
+  }
+  bar.append(fxChip('Nueva carpeta', 'newfolder', fxNewFolder, { title: 'Ctrl+Shift+N' }));
+  bar.append(fxChip(`Orden: ${FX_SORTS[fx.sort]}`, 'sort', () => {
+    fx.sort = fx.sort === 'date' ? 'name' : fx.sort === 'name' ? 'size' : 'date';
+    fx.entries = fxSorted();
+    renderFx();
+  }));
+  if (n) {
+    const sep = document.createElement('span');
+    sep.className = 'fx-sep';
+    bar.append(sep);
+    bar.append(fxChip('Copiar', 'copy', () => fxSetClip(false), { title: 'Ctrl+C' }));
+    bar.append(fxChip('Mover', 'move', () => fxSetClip(true), { title: 'Ctrl+X' }));
+    if (n === 1) bar.append(fxChip('Renombrar', 'edit', fxRename, { title: 'F2' }));
+    if (only && fxIsZip(only)) {
+      bar.append(fxChip('Extraer en carpeta', 'extract', () => fxExtract(true)));
+      bar.append(fxChip('Extraer aquí', 'extract', () => fxExtract(false)));
+    }
+    if (only && !only.isDir) bar.append(fxChip('Abrir', 'open', () => fxOpenEntry(only), { title: 'Enter' }));
+    bar.append(fxChip('Mostrar en el Explorador', 'open', () => window.api.fsReveal(fxPaths()[0])));
+    bar.append(fxChip('Borrar', 'trash', fxDelete, { title: 'Supr' }));
+  }
+
+}
+
+function renderFx() {
+  // Cabecera
+  const atTop = !fx.parent;
+  $('#fx-up').disabled = atTop;
+  $('#fx-name').textContent = fx.dir ? (fx.dir.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || fx.dir) : 'Archivos';
+  $('#fx-path').textContent = fx.dir || '';
+  $('#fx-path').title = fx.dir || '';
+
+  // Lugares
+  const places = $('#fx-places');
+  places.replaceChildren();
+  for (const p of fx.places) {
+    places.append(fxChip(p.label, p.label.length <= 3 ? 'open' : 'folder', () => fxLoad(p.path), { on: fx.dir === p.path }));
+  }
+
+  renderFxBar();
+
+  // Lista
+  const list = $('#fx-list');
+  list.replaceChildren();
+  if (!fx.entries.length) {
+    const d = document.createElement('div');
+    d.className = 'fx-empty';
+    d.textContent = fx.dir ? 'Carpeta vacía' : 'Elegí un lugar arriba';
+    list.append(d);
+    return;
+  }
+  const cutSet = new Set(fx.clip.cut ? fx.clip.paths : []);
+  fx.entries.forEach((e, i) => {
+    const row = document.createElement('div');
+    row.className = 'fx-row' + (fx.sel.has(e.name) ? ' sel' : '');
+    row.setAttribute('role', 'option');
+    row.setAttribute('aria-selected', String(fx.sel.has(e.name)));
+    const ico = fxIcon(e.isDir ? 'folder' : fxIsZip(e) ? 'zip' : 'file', 'fx-ico');
+    const nm = document.createElement('span');
+    nm.className = 'nm' + (cutSet.has(fxJoin(fx.dir, e.name)) ? ' cut' : '');
+    nm.textContent = e.name;
+    const meta = document.createElement('span');
+    meta.className = 'meta';
+    meta.textContent = `${e.isDir ? '' : fxFmtSize(e.size) + ' · '}${fxFmtDate(e.mtime)}`;
+    row.append(ico, nm, meta);
+    row.addEventListener('click', (ev) => {
+      if (ev.shiftKey && fx.last !== null) {
+        const [a, b] = [Math.min(fx.last, i), Math.max(fx.last, i)];
+        if (!ev.ctrlKey) fx.sel.clear();
+        for (let k = a; k <= b; k++) fx.sel.add(fx.entries[k].name);
+      } else if (ev.ctrlKey || ev.metaKey) {
+        if (!fx.sel.delete(e.name)) fx.sel.add(e.name);
+        fx.last = i;
+      } else {
+        fx.sel = new Set([e.name]);
+        fx.last = i;
+      }
+      fxSelChanged();
+    });
+    row.addEventListener('dblclick', () => fxOpenEntry(e));
+    list.append(row);
+  });
+}
+
+$('#fx-up').addEventListener('click', () => fx.parent && fxLoad(fx.parent));
+$('#fx-close').addEventListener('click', () => setFiles(false));
+$('#btn-files').prepend(fxIcon('folder'));
+$('#btn-files').addEventListener('click', () => setFiles(!filesOpen));
+
+document.addEventListener('keydown', (e) => {
+  if (!filesOpen || document.querySelector('dialog[open]')) return;
+  if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+  const k = e.key.toLowerCase();
+  const mod = e.ctrlKey || e.metaKey;
+  if (k === 'escape') setFiles(false);
+  else if (k === 'backspace' && fx.parent) fxLoad(fx.parent);
+  else if (k === 'delete') fxDelete();
+  else if (k === 'f2') fxRename();
+  else if (k === 'enter') {
+    const only = fx.sel.size === 1 ? fx.entries.find((x) => fx.sel.has(x.name)) : null;
+    if (only) fxOpenEntry(only);
+  } else if (mod && k === 'a') {
+    e.preventDefault();
+    fx.sel = new Set(fx.entries.map((x) => x.name));
+    fxSelChanged();
+  } else if (mod && k === 'c') fxSetClip(false);
+  else if (mod && k === 'x') fxSetClip(true);
+  else if (mod && k === 'v') fxPaste();
+  else if (mod && e.shiftKey && k === 'n') { e.preventDefault(); fxNewFolder(); }
+});

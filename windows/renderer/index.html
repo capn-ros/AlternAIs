@@ -97,7 +97,22 @@
       </div>
       </section>
       </div>
-      <p class="drawer-hint">Ctrl+1…9 cambia de cuenta · Ctrl+Tab pasa a la siguiente · Ctrl+N agrega · Ctrl+R recarga · Ctrl+M mensajes</p>
+      <p class="drawer-hint">Ctrl+1…9 cambia de cuenta · Ctrl+Tab pasa a la siguiente · Ctrl+N agrega · Ctrl+R recarga · Ctrl+M mensajes · Ctrl+E archivos</p>
+    </aside>
+
+    <aside id="files" aria-label="Archivos" aria-hidden="true" tabindex="-1">
+      <div class="fx-head">
+        <button id="fx-up" class="fx-btn" type="button" title="Subir una carpeta (Retroceso)" aria-label="Subir una carpeta"></button>
+        <div class="fx-title">
+          <strong id="fx-name"></strong>
+          <span id="fx-path"></span>
+        </div>
+        <button id="fx-close" class="fx-btn" type="button" title="Cerrar (Esc)" aria-label="Cerrar el explorador"></button>
+      </div>
+      <div class="fx-bar" id="fx-places"></div>
+      <div class="fx-bar" id="fx-actions"></div>
+      <div class="fx-list" id="fx-list" role="listbox" aria-multiselectable="true"></div>
+      <div class="fx-status" id="fx-status"></div>
     </aside>
 
     <main>
@@ -112,6 +127,7 @@
           <div class="tb-fill" id="t-fill"><span id="t-fill-label"></span></div>
           <span class="tb-label" id="t-label"></span>
         </div>
+        <button id="btn-files" class="ghost" title="Explorador de archivos (Ctrl+E)">Archivos</button>
         <div class="actions" id="t-actions" hidden>
           <button id="btn-snippets" class="ghost" title="Mensajes guardados (Ctrl+M)">Mensajes</button>
           <button id="btn-reload" class="ghost" title="Recargar (Ctrl+R)">Recargar</button>
@@ -189,6 +205,19 @@
       <button type="button" id="snip-save" class="ghost">Guardar</button>
       <button type="button" id="snip-insert" class="primary">Escribir en el chat</button>
     </div>
+  </dialog>
+
+  <dialog id="dlg-prompt">
+    <form id="form-prompt" method="dialog">
+      <h2 id="pr-title"></h2>
+      <label><span id="pr-label"></span>
+        <input id="pr-input" type="text" maxlength="200" autocomplete="off" />
+      </label>
+      <div class="buttons">
+        <button type="button" id="pr-cancel" class="ghost">Cancelar</button>
+        <button type="submit" id="pr-ok" class="primary">Aceptar</button>
+      </div>
+    </form>
   </dialog>
 
   <dialog id="dlg-confirm">

@@ -274,7 +274,8 @@ body {
 }
 
 /* ---- Cajón de ajustes (sale de detrás de la barra lateral) ---- */
-#drawer {
+#drawer,
+#files {
   position: fixed;
   top: calc(var(--chrome-h) + var(--topbar-h));
   bottom: 0;
@@ -293,17 +294,21 @@ body {
   visibility: hidden;
   transition: transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1), visibility 0s linear 0.26s, border-color 0.26s ease;
 }
-#drawer.open { transform: none; visibility: visible; transition-delay: 0s; }
-#app[data-rail="right"] #drawer {
+#drawer.open,
+#files.open { transform: none; visibility: visible; transition-delay: 0s; }
+#app[data-rail="right"] #drawer,
+#app[data-rail="right"] #files {
   left: auto;
   right: var(--rail-w);
   border-right: 0;
   border-left: 3px solid var(--accent);
   transform: translateX(105%);
 }
-#app[data-rail="right"] #drawer.open { transform: none; }
+#app[data-rail="right"] #drawer.open,
+#app[data-rail="right"] #files.open { transform: none; }
 /* Barra abajo: cajón inferior de lado a lado, que sube desde atrás de la barra, con las opciones en columnas */
-#app[data-rail="bottom"] #drawer {
+#app[data-rail="bottom"] #drawer,
+#app[data-rail="bottom"] #files {
   left: 0;
   right: 0;
   top: auto;
@@ -315,7 +320,8 @@ body {
   border-top: 3px solid var(--accent);
   transform: translateY(105%);
 }
-#app[data-rail="bottom"] #drawer.open { transform: none; }
+#app[data-rail="bottom"] #drawer.open,
+#app[data-rail="bottom"] #files.open { transform: none; }
 #app[data-rail="bottom"] .drawer-head { max-width: 420px; margin: 0 auto; }
 #app[data-rail="bottom"] .dbody {
   display: grid;
@@ -660,3 +666,45 @@ input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(210, 105, 7
   transition: opacity 0.22s ease;
 }
 .loading.on { opacity: 1; pointer-events: auto; }
+
+/* ---- Explorador de archivos (cajón grande, como el de ajustes) ---- */
+#files {
+  width: min(860px, calc(100vw - var(--rail-w) - 28px));
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  outline: none;
+  user-select: none;
+}
+#app[data-rail="bottom"] #files { width: auto; padding: 0; }
+.fx-head { display: flex; align-items: center; gap: 8px; padding: 14px 12px 6px; }
+.fx-title { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.fx-title strong { font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fx-title span { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fx-btn { width: 36px; height: 36px; flex: none; display: grid; place-items: center; border: 0; border-radius: 10px; background: transparent; cursor: pointer; }
+.fx-btn:hover { background: var(--line); }
+.fx-btn[disabled] { opacity: 0.25; pointer-events: none; }
+.fx-btn svg, .fx-chip svg, .fx-ico { fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: stroke 0.26s ease; }
+.fx-bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 12px; }
+.fx-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px 6px 9px; border-radius: 16px; border: 1px solid var(--line); background: color-mix(in srgb, var(--accent) 9%, transparent); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
+.fx-chip:hover { border-color: var(--accent); }
+.fx-chip.on { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); }
+.fx-chip[disabled] { opacity: 0.4; pointer-events: none; }
+.fx-chip svg { width: 16px; height: 16px; }
+.fx-sep { width: 1px; background: var(--line); margin: 2px 4px; }
+.fx-list { flex: 1; min-height: 0; overflow-y: auto; margin-top: 6px; border-top: 1px solid var(--line); }
+.fx-row { display: flex; align-items: center; gap: 12px; padding: 7px 16px; cursor: default; border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent); }
+.fx-row:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.fx-row.sel { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.fx-row .fx-ico { width: 24px; height: 24px; flex: none; }
+.fx-row .nm { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fx-row .meta { color: var(--muted); font-size: 12px; flex: none; text-align: right; min-width: 130px; }
+.fx-row .cut { opacity: 0.45; }
+.fx-empty { color: var(--muted); text-align: center; padding: 40px 16px; }
+.fx-status { padding: 8px 16px; min-height: 34px; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); }
+.fx-status.busy::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 8px; border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: fx-spin 0.7s linear infinite; vertical-align: -1px; }
+@keyframes fx-spin { to { transform: rotate(360deg); } }
+#app[data-rail="bottom"] #files { height: calc(100vh - var(--chrome-h) - var(--topbar-h) - var(--rail-h)); }
+#btn-files svg { width: 16px; height: 16px; margin-right: 6px; vertical-align: -3px; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+#btn-files.on { border-color: var(--accent); }
