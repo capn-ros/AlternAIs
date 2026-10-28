@@ -220,6 +220,68 @@ class MainActivity : AppCompatActivity() {
         WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
     }
 
+    /** Selector de archivos del sistema permitiendo elegir varios a la vez (aunque la página no lo pida). */
+    /**
+     * Una página pide subir archivos: se elige con el explorador interno (varios a la vez). Si no hay acceso
+     * a los archivos, o desde el explorador se toca «Selector del sistema», se usa el selector de Android.
+     */
+    private var pickCallback: ValueCallback<Array<Uri>>? = null
+    private var pickParams: WebChromeClient.FileChooserParams? = null
+    private var pickBackToBrowser = false
+
+    private fun chooseFiles(cb: ValueCallback<Array<Uri>>, params: WebChromeClient.FileChooserParams): Boolean {
+        pendingFileCallback?.onReceiveValue(null)
+        pendingFileCallback = null
+        pickCallback?.onReceiveValue(null)
+        pickCallback = null
+        explorer?.dropPick()
+        if (!hasAllFilesAccess()) return systemPick(cb, params)
+        pickCallback = cb
+        pickParams = params
+        pickBackToBrowser = browserOpen
+        if (!explorerOpen) setExplorerOpen(true)
+        explorer?.startPick(params.acceptTypes?.toList().orEmpty()) { files ->
+            val c = pickCallback
+            pickCallback = null
+            pickParams = null
+            c?.onReceiveValue(files?.map { Uri.fromFile(it) }?.toTypedArray())
+            if (pickBackToBrowser) {
+                pickBackToBrowser = false
+                handler.postDelayed({ if (!explorerOpen) setBrowserOpen(true) }, 320)
+            }
+        }
+        return true
+    }
+
+    private fun systemPick(cb: ValueCallback<Array<Uri>>, params: WebChromeClient.FileChooserParams): Boolean {
+        pendingFileCallback = cb
+        return try {
+            fileLauncher.launch(multiPick(params))
+            true
+        } catch (e: Exception) {
+            pendingFileCallback = null
+            cb.onReceiveValue(null)
+            false
+        }
+    }
+
+    private fun switchToSystemPicker() {
+        val cb = pickCallback ?: return
+        val params = pickParams ?: return
+        pickCallback = null
+        pickParams = null
+        explorer?.dropPick()
+        setExplorerOpen(false)
+        if (pickBackToBrowser) {
+            pickBackToBrowser = false
+            handler.postDelayed({ setBrowserOpen(true) }, 320)
+        }
+        systemPick(cb, params)
+    }
+
+    private fun multiPick(params: WebChromeClient.FileChooserParams): Intent =
+        params.createIntent().putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+
     private val fileLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
             val uris = WebChromeClient.FileChooserParams.parseResult(res.resultCode, res.data)
@@ -516,6 +578,7 @@ class MainActivity : AppCompatActivity() {
             if (borderColor != 0) borderColor else ColorUtils.setAlphaComponent(store.onSurface, 60)
         override fun close() = setExplorerOpen(false)
         override fun message(text: String) = snack(text)
+        override fun systemPicker() = switchToSystemPicker()
         override fun requestLegacyPermission() {
             legacyStorageLauncher.launch(
                 arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE)
@@ -549,6 +612,7 @@ class MainActivity : AppCompatActivity() {
                     .setInterpolator(DecelerateInterpolator(1.6f)).start()
             }
         } else {
+            explorer?.cancelPick() // si se cerró sin elegir, la página recibe «ningún archivo»
             val v = explorer?.view ?: return
             v.animate().cancel()
             v.animate().translationY(v.height.toFloat()).setDuration(200).withEndAction {
@@ -649,16 +713,7 @@ class MainActivity : AppCompatActivity() {
         override fun message(text: String) = snack(text)
         override fun multiProfile(): Boolean = multiProfileOk
         override fun chooseFile(callback: ValueCallback<Array<Uri>>, params: WebChromeClient.FileChooserParams): Boolean {
-            pendingFileCallback?.onReceiveValue(null)
-            pendingFileCallback = callback
-            return try {
-                fileLauncher.launch(params.createIntent())
-                true
-            } catch (e: Exception) {
-                pendingFileCallback = null
-                callback.onReceiveValue(null)
-                false
-            }
+            return chooseFiles(callback, params)
         }
         override fun download(wv: WebView, url: String, ua: String?, cd: String?, mime: String?) =
             browserDownload(wv, url, ua, cd, mime)
@@ -1121,7 +1176,8 @@ class MainActivity : AppCompatActivity() {
         val r = if (merged) 0f else dp(22).toFloat()
         dockRadius = r
         dockBg.cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
-        dockLayer.setLayerInset(0, 0, if (merged) -dp(8) else 0, 0, -dp(8))
+        // El borde de arriba se mantiene también con un cajón abierto: es el separador entre el cajón y la barra.
+        dockLayer.setLayerInset(0, 0, 0, 0, -dp(8))
         dock.invalidateOutline()
         dock.invalidate()
     }
@@ -1896,16 +1952,7 @@ class MainActivity : AppCompatActivity() {
                 fileChooserParams: FileChooserParams?
             ): Boolean {
                 if (filePathCallback == null || fileChooserParams == null) return false
-                pendingFileCallback?.onReceiveValue(null)
-                pendingFileCallback = filePathCallback
-                return try {
-                    fileLauncher.launch(fileChooserParams.createIntent())
-                    true
-                } catch (e: Exception) {
-                    pendingFileCallback = null
-                    filePathCallback.onReceiveValue(null)
-                    false
-                }
+                return chooseFiles(filePathCallback, fileChooserParams)
             }
         }
         wv.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->

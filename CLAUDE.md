@@ -238,3 +238,6 @@ zip -r cd.zip . -x "cd.zip" -x ".git/*" -x "*/node_modules/*" -x "*/dist/*" -x "
 ## Notificaciones del fin del descanso
 - Con mensaje automático: el aviso dice si se envió («Mensaje enviado a …») o si falló («No se pudo enviar…», con el mensaje copiado). Android: `LimitAlarms.notifyDone/notifyResult` (misma notificación, se reemplaza); Windows: `notifyAuto`.
 - Sin mensaje automático: el aviso ofrece responder. Android: botón «Responder» (extra `EXTRA_REPLY` → `quickReply` en MainActivity, envía por `sendNow`/`enqueueAutoReply`); Windows: tocar la notificación abre el diálogo `dlg-reply` (acción `quick-reply`, IPC `account:reply`).
+
+## Subir archivos con el explorador interno (Android)
+- Cuando una página (cuenta o navegador interno) pide adjuntar archivos, `chooseFiles` abre el explorador en modo «subir» (`FileExplorer.startPick`): tocar un archivo lo marca, «Subir (N)» lo entrega a la página (URIs `file://`), filtra por los tipos que pide la página, y «Selector del sistema» vuelve al de Android. Sin acceso a todos los archivos usa el selector del sistema directamente. Al terminar o cancelar, si se venía del navegador interno, se reabre. En Windows se usa el diálogo nativo (ya permite varios).

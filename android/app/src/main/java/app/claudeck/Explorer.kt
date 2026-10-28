@@ -44,6 +44,9 @@ interface ExplorerHost {
     fun close()
     fun message(text: String)
     fun requestLegacyPermission()
+
+    /** Desde el modo «subir archivo»: volver al selector de archivos del sistema. */
+    fun systemPicker()
 }
 
 /**
@@ -76,6 +79,10 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
     private lateinit var emptyView: TextView
     private lateinit var permView: LinearLayout
     private val adapter = Adapter()
+
+    /** Modo «subir archivo»: una página pidió adjuntar archivos y se eligen acá (varios a la vez). */
+    private class PickRequest(val accept: List<String>, val onDone: (List<File>?) -> Unit)
+    private var pick: PickRequest? = null
     private var touchX = 0
     private var touchY = 0
     private var menu: android.widget.PopupWindow? = null
@@ -262,6 +269,56 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
     /** Al abrir el cajón: muestra la carpeta actual (Descargas la primera vez). */
     fun open() = refresh()
 
+    fun isPicking(): Boolean = pick != null
+
+    fun startPick(accept: List<String>, onDone: (List<File>?) -> Unit) {
+        pick?.onDone?.invoke(null)
+        pick = PickRequest(accept.filter { it.isNotBlank() }, onDone)
+        selected.clear()
+        refresh()
+    }
+
+    /** Se cerró el explorador (o se cambió de cajón) sin elegir: la página recibe «ningún archivo». */
+    fun cancelPick() {
+        val p = pick ?: return
+        pick = null
+        selected.clear()
+        p.onDone(null)
+        refresh()
+    }
+
+    /** Suelta el pedido sin avisar a la página (la va a atender el selector del sistema). */
+    fun dropPick() {
+        pick = null
+        selected.clear()
+        refresh()
+    }
+
+    private fun finishPick() {
+        val p = pick ?: return
+        val files = selected.toList()
+        pick = null
+        selected.clear()
+        p.onDone(files)
+        host.close()
+    }
+
+    private fun acceptable(e: FileEntry): Boolean {
+        val acc = pick?.accept ?: return true
+        if (e.isDir || acc.isEmpty()) return true
+        val ext = e.file.extension.lowercase()
+        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: ""
+        return acc.any { t0 ->
+            val t = t0.trim().lowercase()
+            when {
+                t == "*/*" || t == "*" -> true
+                t.startsWith(".") -> ext == t.removePrefix(".")
+                t.endsWith("/*") -> mime.startsWith(t.removeSuffix("*"))
+                else -> mime == t
+            }
+        }
+    }
+
     fun refresh() {
         if (!hasAccess()) {
             entries = emptyList()
@@ -280,7 +337,7 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
             entries = emptyList()
             emptyView.text = "No se puede leer esta carpeta"
         } else {
-            entries = l
+            entries = if (pick != null) l.filter { acceptable(it) } else l
             emptyView.text = "Carpeta vacía"
         }
         selected.retainAll(entries.map { it.file }.toSet())
@@ -320,7 +377,7 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
 
     private fun renderHeader() {
         val root = atRoot()
-        titleView.text = if (root) "Almacenamiento" else dir.name
+        titleView.text = if (pick != null) "Subir archivos · " + (if (root) "Almacenamiento" else dir.name) else if (root) "Almacenamiento" else dir.name
         val rel = dir.path.removePrefix(storageRoot.path).ifEmpty { "/" }
         pathView.text = rel
         upButton.visibility = if (root) View.INVISIBLE else View.VISIBLE
@@ -329,6 +386,14 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
     private fun renderBar() {
         bar.removeAllViews()
         if (!hasAccess()) return
+        if (pick != null) {
+            if (selected.isNotEmpty()) addChip(chip("Subir (${selected.size})", R.drawable.ic_upload) { finishPick() })
+            addChip(chip("Descargas", R.drawable.ic_folder) { if (downloads.exists()) navigate(downloads) })
+            addChip(chip("Almacenamiento", R.drawable.ic_folder) { navigate(storageRoot) })
+            addChip(chip("Selector del sistema", R.drawable.ic_file) { host.systemPicker() })
+            addChip(chip("Cancelar", R.drawable.ic_close) { host.close() })
+            return
+        }
         if (selected.isNotEmpty()) {
             val one = selected.size == 1
             val only = selected.firstOrNull()
@@ -608,6 +673,10 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
     }
 
     private fun onItemClick(e: FileEntry) {
+        if (pick != null) {
+            if (e.isDir) navigate(e.file) else toggle(e.file)
+            return
+        }
         if (selected.isNotEmpty()) {
             toggle(e.file)
             return
@@ -681,7 +750,11 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
                 false
             }
             h.row.setOnLongClickListener {
-                showMenu(h.row, e)
+                if (pick != null) {
+                    if (!e.isDir) toggle(e.file)
+                } else {
+                    showMenu(h.row, e)
+                }
                 true
             }
         }
