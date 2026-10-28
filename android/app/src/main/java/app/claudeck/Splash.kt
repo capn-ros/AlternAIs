@@ -7,9 +7,12 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PathMeasure
 import android.graphics.RectF
 import android.view.View
 import android.view.animation.LinearInterpolator
+import androidx.core.graphics.PathParser
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -21,7 +24,9 @@ import kotlin.math.sin
  * Animación de arranque del logo (~1,7 s). Cuenta lo que hace la app:
  * las dos mitades (Claude y Replit) entran y se encajan, giran para "alternar", aparecen las cuentas
  * (puntos de colores), se voltean cambiando de color (cambio de IA / de tema) y un anillo se completa
- * (el tiempo de descanso de cada cuenta). Se dibuja a mano; no usa recursos ni librerías.
+ * (el tiempo de descanso de cada cuenta). Debajo va el nombre "AlternAIs" (trazo redondeado): en el arranque
+ * se dibuja letra a letra; en el bucle cada letra se voltea y cambia de color en cascada, al compás del logo
+ * (ciclo de 2 vueltas). Se dibuja a mano; no usa recursos ni librerías.
  */
 class SplashLogoView(context: Context, private val loop: Boolean = false) : View(context) {
     private val coral = 0xFFD97757.toInt()
@@ -30,6 +35,38 @@ class SplashLogoView(context: Context, private val loop: Boolean = false) : View
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rect = RectF()
     private var t = 0f
+    private var wt = 0f // tiempo del nombre (en bucle: 0..2*LOOP)
+
+    // Nombre: [trazo, ancho, color]. Mismo trazo que en Windows (splash.js).
+    private class Glyph(val path: Path, val w: Float, val base: Int, val alt: Int, val x: Float) {
+        val measure = PathMeasure(path, false)
+        val len = measure.length
+    }
+    private val glyphs: List<Glyph>
+    private val wTotal: Float
+    private val seg = Path()
+
+    init {
+        val defs = listOf(
+            Triple("M0 0L13 -36L26 0M5 -13H21", 26f, cream),
+            Triple("M3 -40V0", 6f, cream),
+            Triple("M6 -36V-9A9 9 0 0 0 15 0M0 -26H16", 17f, cream),
+            Triple("M0 -13H26A13 13 0 1 0 22.2 -3.8", 26f, cream),
+            Triple("M3 0V-26M3 -14C3 -22 8 -26 16 -26", 17f, cream),
+            Triple("M3 0V-26M3 -15C3 -23 8 -26 14 -26C21 -26 25 -22 25 -14V0", 28f, cream),
+            Triple("M0 0L13 -36L26 0M5 -13H21", 26f, coral),
+            Triple("M3 -36V0", 6f, coral),
+            Triple("M17 -21C15 -26 4 -28 2.5 -20C1.5 -13 18 -14 18 -6C18 1 5 1 1 -6", 20f, cream)
+        )
+        var x = 0f
+        val list = ArrayList<Glyph>()
+        for ((d, w, c) in defs) {
+            list.add(Glyph(PathParser.createPathFromPathData(d), w, c, if (c == coral) cream else coral, x))
+            x += w + 8f
+        }
+        glyphs = list
+        wTotal = x - 8f
+    }
     private var animator: ValueAnimator? = null
 
     /** Se llama al terminar (o al tocar la pantalla). */
@@ -44,12 +81,14 @@ class SplashLogoView(context: Context, private val loop: Boolean = false) : View
     /** En modo bucle (mientras carga una página): repite giro, volteo y anillo, sin la entrada. */
     fun startLoop() {
         animator?.cancel()
-        animator = ValueAnimator.ofFloat(0f, LOOP).apply {
-            duration = LOOP.toLong()
+        animator = ValueAnimator.ofFloat(0f, LOOP * 2f).apply {
+            duration = (LOOP * 2f).toLong()
             interpolator = LinearInterpolator()
             repeatCount = ValueAnimator.INFINITE
             addUpdateListener {
-                t = LOOP_START + it.animatedValue as Float
+                val v = it.animatedValue as Float
+                wt = v
+                t = LOOP_START + v % LOOP
                 invalidate()
             }
             start()
@@ -67,6 +106,7 @@ class SplashLogoView(context: Context, private val loop: Boolean = false) : View
             interpolator = LinearInterpolator()
             addUpdateListener {
                 t = it.animatedValue as Float
+                wt = t
                 alpha = 1f - clamp((t - 1500f) / 200f)
                 invalidate()
             }
@@ -106,7 +146,7 @@ class SplashLogoView(context: Context, private val loop: Boolean = false) : View
     override fun onDraw(canvas: Canvas) {
         val u = min(width, height) * 0.5f / 120f // unidad: el logo mide 120 u
         val cx = width / 2f
-        val cy = height / 2f * 0.96f
+        val cy = height / 2f - 25f * u // el nombre va debajo; el conjunto queda centrado
 
         val appear = clamp(t / 150f)
         val slide = easeOutBack(clamp(t / 300f))
@@ -168,11 +208,65 @@ class SplashLogoView(context: Context, private val loop: Boolean = false) : View
         canvas.drawArc(rect, 270f, 180f, true, paint)
         canvas.restore()
         canvas.restore()
+
+        drawWord(canvas, cx, cy + 122f * u, u * 0.7f)
+    }
+
+    private fun drawWord(canvas: Canvas, x0: Float, baseY: Float, k: Float) {
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 6f
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.strokeJoin = Paint.Join.ROUND
+        canvas.save()
+        canvas.translate(x0 - wTotal * k / 2f, baseY)
+        canvas.scale(k, k)
+        for ((i, g) in glyphs.withIndex()) {
+            var sx = 1f
+            var hop = 0f
+            var swapped = false
+            var draw = 1f
+            if (!loop) {
+                draw = easeOut(clamp((wt - IN_START - IN_STAG * i) / IN_DUR))
+            } else {
+                val p1 = easeInOut(clamp((wt - WAVE1 - W_STAG * i) / W_DUR))
+                val p2 = easeInOut(clamp((wt - WAVE2 - W_STAG * i) / W_DUR))
+                swapped = p1 >= 0.5f && p2 < 0.5f
+                sx = abs(cos(PI.toFloat() * (if (p2 > 0f && p2 < 1f) p2 else p1))).coerceAtLeast(0.02f)
+                hop = -4f * (sin(PI.toFloat() * p1) + sin(PI.toFloat() * p2))
+            }
+            if (draw <= 0.001f) continue
+            paint.color = if (swapped) g.alt else g.base
+            paint.alpha = 255
+            canvas.save()
+            canvas.translate(g.x + g.w / 2f, -18f + hop)
+            canvas.scale(sx, 1f)
+            canvas.translate(-g.w / 2f, 18f)
+            if (draw >= 0.999f) {
+                canvas.drawPath(g.path, paint)
+            } else {
+                // Dibujo progresivo: cada subtrazo se recorta al mismo porcentaje.
+                seg.rewind()
+                g.measure.setPath(g.path, false)
+                do {
+                    g.measure.getSegment(0f, g.measure.length * draw, seg, true)
+                } while (g.measure.nextContour())
+                canvas.drawPath(seg, paint)
+            }
+            canvas.restore()
+        }
+        canvas.restore()
     }
 
     companion object {
         const val TOTAL = 1700f
         const val LOOP_START = 300f
         const val LOOP = 1300f
+        const val WAVE1 = 250f
+        const val WAVE2 = 1550f
+        const val W_STAG = 55f
+        const val W_DUR = 460f
+        const val IN_START = 450f
+        const val IN_STAG = 60f
+        const val IN_DUR = 380f
     }
 }

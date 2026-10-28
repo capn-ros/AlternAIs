@@ -7,6 +7,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
+import androidx.core.app.RemoteInput
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -102,11 +103,30 @@ object LimitAlarms {
         }
     }
 
-    /** Aviso de fin de descanso. Con mensaje automático dice qué va a pasar; sin él ofrece «Responder». */
-    internal fun notifyDone(ctx: Context, id: String, name: String, auto: Boolean = false) {
+    internal const val ACTION_REPLY = "app.claudeck.action.REPLY"
+    internal const val KEY_REPLY = "reply_text"
+
+    /** Acción de la notificación que envía un texto sin abrir la app (cuadro para escribir o mensaje guardado). */
+    private fun replyIntent(ctx: Context, id: String, text: String?, code: Int): PendingIntent {
+        val i = Intent(ctx, ReplyReceiver::class.java)
+            .setAction(ACTION_REPLY)
+            .setData(Uri.parse("alternais://reply/$id/$code"))
+            .putExtra("id", id)
+        if (text != null) i.putExtra("text", text)
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+            (if (text == null && Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE
+            else if (text == null) 0 else PendingIntent.FLAG_IMMUTABLE)
+        return PendingIntent.getBroadcast(ctx, code, i, flags)
+    }
+
+    /**
+     * Aviso de fin de descanso. Con mensaje automático dice qué pasa; sin él se puede responder desde la
+     * misma notificación: cuadro para escribir y los primeros mensajes guardados, sin abrir la app.
+     */
+    internal fun notifyDone(ctx: Context, id: String, name: String, auto: Boolean = false, started: Boolean = true) {
         val nm = channel(ctx) ?: return
         val text = when {
-            auto && MainActivity.alive -> "Terminó el descanso. Enviando el mensaje automático…"
+            auto && started -> "Terminó el descanso. Enviando el mensaje automático…"
             auto -> "Terminó el descanso. Abrí la app para que se envíe el mensaje automático."
             else -> "Terminó el descanso por límite de uso. Podés responder desde acá."
         }
@@ -119,8 +139,24 @@ object LimitAlarms {
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setDefaults(Notification.DEFAULT_ALL)
-        if (!auto) b.addAction(R.drawable.ic_message, "Responder", openIntent(ctx, id, true, id.hashCode() + 1))
+        if (!auto) addReplyActions(ctx, b, id)
         post(ctx, id, nm, b.build())
+    }
+
+    private fun addReplyActions(ctx: Context, b: NotificationCompat.Builder, id: String) {
+        val ri = RemoteInput.Builder(KEY_REPLY).setLabel("Escribí la respuesta").build()
+        b.addAction(
+            NotificationCompat.Action.Builder(R.drawable.ic_message, "Responder", replyIntent(ctx, id, null, id.hashCode() + 1))
+                .addRemoteInput(ri)
+                .setAllowGeneratedReplies(false)
+                .build()
+        )
+        val snips = try { AccountStore(ctx).snippets } catch (_: Exception) { emptyList() }
+        snips.take(2).forEachIndexed { k, s ->
+            if (s.isBlank()) return@forEachIndexed
+            val label = if (s.length > 22) s.take(22) + "…" else s
+            b.addAction(R.drawable.ic_message, label, replyIntent(ctx, id, s, id.hashCode() + 2 + k))
+        }
     }
 
     /** Resultado del mensaje automático: se envió o falló (reemplaza al aviso de fin de descanso). */
@@ -136,7 +172,7 @@ object LimitAlarms {
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setDefaults(Notification.DEFAULT_ALL)
-        if (!ok) b.addAction(R.drawable.ic_message, "Responder", openIntent(ctx, id, true, id.hashCode() + 1))
+        if (!ok) addReplyActions(ctx, b, id)
         post(ctx, id, nm, b.build())
     }
 }
@@ -146,7 +182,10 @@ class LimitAlarmReceiver : BroadcastReceiver() {
         val id = intent.getStringExtra("id") ?: return
         val name = intent.getStringExtra("name") ?: "Cuenta"
         val auto = Service.values().any { svc -> AccountStore(context).loadFor(svc).any { it.id == id && it.autoReply.isNotEmpty() } }
-        LimitAlarms.notifyDone(context, id, name, auto)
+        // Con la app abierta se ocupa ella; si está cerrada, un servicio manda el mensaje en segundo plano.
+        var started = true
+        if (auto && !MainActivity.alive) started = AutoReplyService.start(context, id, null)
+        LimitAlarms.notifyDone(context, id, name, auto, started || MainActivity.alive)
         BubbleService.refresh()
     }
 }
@@ -155,5 +194,28 @@ class LimitAlarmReceiver : BroadcastReceiver() {
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         LimitAlarms.reschedule(context)
+    }
+}
+
+/** Respuesta desde la notificación (cuadro para escribir o mensaje guardado): se envía sin abrir la app. */
+class ReplyReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val id = intent.getStringExtra("id") ?: return
+        val typed = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(LimitAlarms.KEY_REPLY)?.toString()
+        val text = (typed ?: intent.getStringExtra("text")).orEmpty().trim()
+        if (text.isEmpty()) return
+        val nm = context.getSystemService(NotificationManager::class.java)
+        nm?.cancel(("limit" + id).hashCode())
+        if (MainActivity.alive) {
+            // App abierta: usa su propio chat.
+            context.startActivity(
+                Intent(context, MainActivity::class.java)
+                    .putExtra(MainActivity.EXTRA_SELECT, id)
+                    .putExtra(MainActivity.EXTRA_SEND_TEXT, text)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            )
+        } else {
+            AutoReplyService.start(context, id, text)
+        }
     }
 }

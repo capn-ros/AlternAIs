@@ -105,6 +105,7 @@ class MainActivity : AppCompatActivity() {
 
         /** Extra para abrir el selector de respuesta rápida de una cuenta (botón «Responder» de la notificación). */
         const val EXTRA_REPLY = "app.claudeck.extra.REPLY"
+        const val EXTRA_SEND_TEXT = "app.claudeck.extra.SEND_TEXT"
 
         /** La pantalla principal está viva (la alarma lo usa para decir si el mensaje automático se enviará solo). */
         @Volatile
@@ -468,6 +469,14 @@ class MainActivity : AppCompatActivity() {
 
     /** Botón «Responder» de la notificación: abre el selector de mensajes de esa cuenta. */
     private fun handleReplyIntent(i: Intent?) {
+        // Respuesta escrita en la notificación con la app abierta: se envía directo, sin diálogo.
+        val sendText = i?.getStringExtra(EXTRA_SEND_TEXT)
+        val sendId = i?.getStringExtra(EXTRA_SELECT)
+        if (!sendText.isNullOrEmpty() && sendId != null) {
+            i.removeExtra(EXTRA_SEND_TEXT)
+            accounts.firstOrNull { it.id == sendId }?.let { acc -> handler.postDelayed({ sendNow(acc, sendText) }, 500) }
+            return
+        }
         val id = i?.getStringExtra(EXTRA_REPLY) ?: return
         i.removeExtra(EXTRA_REPLY)
         val acc = accounts.firstOrNull { it.id == id } ?: return
@@ -594,6 +603,7 @@ class MainActivity : AppCompatActivity() {
             closePanelsExcept("files")
             val ex = explorer ?: FileExplorer(this, explorerHost).also {
                 explorer = it
+                addSwipeHandle(it.view) { setExplorerOpen(false) }
                 container.addView(
                     it.view,
                     FrameLayout.LayoutParams(
@@ -666,6 +676,55 @@ class MainActivity : AppCompatActivity() {
         (explorerOpen && explorer?.view?.let { hit(it, ev) } == true) ||
             (snippetsOpen && snippetsPanel?.view?.let { hit(it, ev) } == true) ||
             (browserOpen && browser?.view?.let { hit(it, ev) } == true)
+
+    /**
+     * Franja en el borde superior de un cajón grande (con una rayita para agarrar): arrastrarla hacia abajo
+     * lo sigue con el dedo y lo cierra si se suelta pasado cierto punto o con un envión; si no, vuelve a su lugar.
+     */
+    private fun addSwipeHandle(panel: LinearLayout, close: () -> Unit) {
+        val handle = FrameLayout(this)
+        val pill = View(this)
+        pill.background = GradientDrawable().apply {
+            cornerRadius = dp(3).toFloat()
+            setColor(ColorUtils.setAlphaComponent(store.onSurface, 90))
+        }
+        handle.addView(pill, FrameLayout.LayoutParams(dp(40), dp(4), Gravity.CENTER))
+        var startY = 0f
+        var dragging = false
+        var vt: android.view.VelocityTracker? = null
+        handle.setOnTouchListener { v, ev ->
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    startY = ev.rawY
+                    dragging = true
+                    panel.animate().cancel()
+                    vt?.recycle()
+                    vt = android.view.VelocityTracker.obtain().also { it.addMovement(ev) }
+                    v.parent?.requestDisallowInterceptTouchEvent(true)
+                }
+                MotionEvent.ACTION_MOVE -> if (dragging) {
+                    vt?.addMovement(ev)
+                    panel.translationY = (ev.rawY - startY).coerceAtLeast(0f)
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> if (dragging) {
+                    dragging = false
+                    vt?.addMovement(ev)
+                    vt?.computeCurrentVelocity(1000)
+                    val vy = vt?.yVelocity ?: 0f
+                    vt?.recycle()
+                    vt = null
+                    val dy = panel.translationY
+                    if (ev.actionMasked == MotionEvent.ACTION_UP && (dy > panel.height * 0.2f || (vy > 1200f && dy > dp(12)))) {
+                        close()
+                    } else {
+                        panel.animate().translationY(0f).setDuration(180).start()
+                    }
+                }
+            }
+            true
+        }
+        panel.addView(handle, 0, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(20)))
+    }
 
     private fun slideIn(v: View) {
         v.animate().cancel()
@@ -864,6 +923,7 @@ class MainActivity : AppCompatActivity() {
             closePanelsExcept("snippets")
             val p = snippetsPanel ?: SnippetsPanel(this, snippetsHost).also {
                 snippetsPanel = it
+                addSwipeHandle(it.view) { setSnippetsOpen(false) }
                 container.addView(
                     it.view,
                     FrameLayout.LayoutParams(
@@ -888,6 +948,7 @@ class MainActivity : AppCompatActivity() {
             val p = browser ?: BrowserPanel(this, browserHost, savedBrowserWebView).also {
                 browser = it
                 savedBrowserWebView = null
+                addSwipeHandle(it.view) { setBrowserOpen(false) }
                 container.addView(
                     it.view,
                     FrameLayout.LayoutParams(
@@ -2942,6 +3003,14 @@ class MainActivity : AppCompatActivity() {
         }
         hour.addTextChangedListener(watcher)
         min.addTextChangedListener(watcher)
+        // Con dos cifras en la hora se pasa solo a los minutos.
+        hour.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
+            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                if (s?.length == 2 && hour.hasFocus()) min.requestFocus()
+            }
+        })
 
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
@@ -2995,8 +3064,14 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("Cancelar", null)
             .show()
-        hour.requestFocus()
+        // El teclado no se abre solo con el foco: se pide explícitamente cuando el diálogo ya se mostró.
         dlg.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        hour.postDelayed({
+            hour.requestFocus()
+            hour.selectAll()
+            (getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+                .showSoftInput(hour, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }, 250)
     }
 
     private fun setLimit(acc: Account, until: Long) {
@@ -3031,8 +3106,7 @@ class MainActivity : AppCompatActivity() {
             else -> labels.size - 1
         }
         MaterialAlertDialogBuilder(this)
-            .setTitle("Respuesta automática")
-            .setMessage("Al terminar el descanso se escribe y se envía sola en el chat de «${acc.name}». La app tiene que estar abierta (o abrirla cuando llegue el aviso).")
+            .setTitle("Respuesta automática en «${acc.name}»")
             .setSingleChoiceItems(labels.toTypedArray(), checked) { d, which ->
                 d.dismiss()
                 when {
@@ -3064,7 +3138,7 @@ class MainActivity : AppCompatActivity() {
     private fun setAutoReply(acc: Account, text: String) {
         acc.autoReply = text.take(4000)
         store.save(accounts)
-        snack(if (text.isEmpty()) "Sin respuesta automática" else "Se enviará «${text.take(40)}» cuando termine el descanso")
+        snack(if (text.isEmpty()) "Sin respuesta automática" else "Se enviará sola «${text.take(40)}» al terminar el descanso, sin abrir la app")
     }
 
     private val autoQueue = ArrayDeque<String>()
@@ -3106,31 +3180,7 @@ class MainActivity : AppCompatActivity() {
             finishAutoReply()
             return
         }
-        val js = """
-            (function(t){
-              var c=[].slice.call(document.querySelectorAll('div[contenteditable="true"],textarea')).filter(function(x){return x.offsetParent!==null;});
-              var el=c.length?c[c.length-1]:null;
-              if(!el) return 'none';
-              el.focus();
-              if(el.isContentEditable){
-                var s=window.getSelection();s.selectAllChildren(el);s.collapseToEnd();
-                if(!document.execCommand('insertText',false,t)) return 'none';
-              } else {
-                var set=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;
-                set.call(el,(el.value||'')+t);
-                el.dispatchEvent(new Event('input',{bubbles:true}));
-              }
-              setTimeout(function(){
-                var b=[].slice.call(document.querySelectorAll('button')).filter(function(x){
-                  var l=(x.getAttribute('aria-label')||'')+' '+(x.getAttribute('data-testid')||'');
-                  return /send|enviar|submit/i.test(l)&&!x.disabled&&x.offsetParent!==null;});
-                if(b.length){b[b.length-1].click();return;}
-                ['keydown','keypress','keyup'].forEach(function(n){
-                  el.dispatchEvent(new KeyboardEvent(n,{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true}));});
-              },600);
-              return 'ok';
-            })(${JSONObject.quote(text)})
-        """.trimIndent()
+        val js = AutoSend.js(text)
         wv.evaluateJavascript(js) { res ->
             if (res?.contains("ok") == true) {
                 snack("Respuesta enviada a «${acc.name}»")
