@@ -263,25 +263,91 @@ function openLimitDialog(id) {
   $('#lim-renew-row').hidden = !replit;
   $('#lim-date').value = '';
   const now = new Date();
-  $('#lim-time').value = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  $('#lim-h').value = '0';
+  $('#lim-m').value = '00';
+  $('#lim-ap').value = 'auto';
+  limPreview();
+  // Respuesta automática: uno de los mensajes guardados, un texto propio o nada.
+  const sel = $('#lim-auto');
+  sel.replaceChildren(new Option('No responder', ''));
+  const snips = state.snippets || [];
+  snips.forEach((t, i) => sel.append(new Option(t.length > 60 ? t.slice(0, 60) + '…' : t, 's' + i)));
+  sel.append(new Option('Texto propio…', 'own'));
+  const own = $('#lim-auto-text');
+  const cur = acc.autoReply || '';
+  const idx = snips.indexOf(cur);
+  sel.value = !cur ? '' : idx >= 0 ? 's' + idx : 'own';
+  own.value = cur && idx < 0 ? cur : '';
+  own.hidden = sel.value !== 'own';
   openDialog($('#dlg-limit'));
+}
+$('#lim-auto').addEventListener('change', () => {
+  $('#lim-auto-text').hidden = $('#lim-auto').value !== 'own';
+  if (!$('#lim-auto-text').hidden) $('#lim-auto-text').focus();
+});
+
+function chosenAutoReply() {
+  const v = $('#lim-auto').value;
+  if (v === 'own') return $('#lim-auto-text').value.trim();
+  if (v.startsWith('s')) return (state.snippets || [])[Number(v.slice(1))] || '';
+  return '';
 }
 
 async function applyLimit(until) {
   const id = limitTargetId;
+  const auto = until > 0 ? chosenAutoReply() : '';
   $('#dlg-limit').close();
-  if (id) await window.api.setLimit(id, until);
+  if (id) await window.api.setLimit(id, until, auto);
 }
 $('#lim-5h').addEventListener('click', () => applyLimit(Date.now() + 5 * HOUR));
 $('#lim-24h').addEventListener('click', () => applyLimit(Date.now() + 24 * HOUR));
 $('#lim-7d').addEventListener('click', () => applyLimit(Date.now() + 7 * 24 * HOUR));
+// Hora exacta: horas y minutos arrancan en cero; con «Auto» se elige solo AM o PM (lo próximo que viene).
+function limTarget() {
+  const hs = $('#lim-h').value.trim();
+  const ms = $('#lim-m').value.trim();
+  const h = hs === '' ? 0 : Number(hs);
+  const m = ms === '' ? 0 : Number(ms);
+  if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 23 || m < 0 || m > 59) return null;
+  const mode = $('#lim-ap').value;
+  const now = new Date();
+  const at = (hh, addDays) => {
+    const t = new Date();
+    t.setHours(hh, m, 0, 0);
+    t.setDate(t.getDate() + addDays);
+    return t;
+  };
+  if (h === 0 || h > 12) return at(h, 0).getTime() > now.getTime() ? at(h, 0) : at(h, 1); // 24 h tal cual
+  const am = h % 12;
+  const pm = am + 12;
+  if (mode === 'am') return at(am, 0).getTime() > now.getTime() ? at(am, 0) : at(am, 1);
+  if (mode === 'pm') return at(pm, 0).getTime() > now.getTime() ? at(pm, 0) : at(pm, 1);
+  const cands = [at(am, 0), at(pm, 0), at(am, 1), at(pm, 1)].filter((t) => t.getTime() > now.getTime());
+  return cands.sort((x, y) => x - y)[0];
+}
+function limPreview() {
+  const t = limTarget();
+  const el = $('#lim-preview');
+  if (!t) {
+    el.textContent = 'Hora no válida';
+    return;
+  }
+  const same = t.toDateString() === new Date().toDateString();
+  const hh = String(t.getHours()).padStart(2, '0');
+  const mm = String(t.getMinutes()).padStart(2, '0');
+  el.textContent = `Se reinicia ${same ? 'hoy' : 'mañana'} a las ${hh}:${mm}`;
+}
+for (const id of ['#lim-h', '#lim-m']) {
+  $(id).addEventListener('focus', () => $(id).select());
+  $(id).addEventListener('input', () => {
+    $(id).value = $(id).value.replace(/\D/g, '').slice(0, 2);
+    limPreview();
+  });
+}
+$('#lim-ap').addEventListener('change', limPreview);
 $('#lim-exact').addEventListener('click', () => {
-  const v = $('#lim-time').value;
-  if (!v) return;
-  const [h, m] = v.split(':').map(Number);
-  const t = new Date();
-  t.setHours(h, m, 0, 0);
-  if (t.getTime() <= Date.now()) t.setDate(t.getDate() + 1);
+  const t = limTarget();
+  if (!t) return;
   applyLimit(t.getTime());
 });
 $('#lim-renew').addEventListener('click', () => {
@@ -294,6 +360,34 @@ $('#lim-renew').addEventListener('click', () => {
 });
 $('#lim-clear').addEventListener('click', () => applyLimit(0));
 $('#lim-cancel').addEventListener('click', () => $('#dlg-limit').close());
+
+// ---------------------------------------------------------------- Respuesta rápida (desde la notificación)
+
+let replyTarget = null;
+function openReplyDialog(id, name) {
+  replyTarget = id;
+  $('#rp-title').textContent = `Responder en «${name}»`;
+  const list = $('#rp-list');
+  list.replaceChildren();
+  for (const t of state.snippets || []) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'choice';
+    b.textContent = t.length > 80 ? t.slice(0, 80) + '…' : t;
+    b.addEventListener('click', () => sendReply(t));
+    list.append(b);
+  }
+  $('#rp-text').value = '';
+  openDialog($('#dlg-reply'));
+}
+async function sendReply(text) {
+  const t = (text || '').trim();
+  if (!t || !replyTarget) return;
+  $('#dlg-reply').close();
+  await window.api.replyNow(replyTarget, t);
+}
+$('#rp-send').addEventListener('click', () => sendReply($('#rp-text').value));
+$('#rp-cancel').addEventListener('click', () => $('#dlg-reply').close());
 
 // ---------------------------------------------------------------- Mensajes guardados (cajón)
 
@@ -723,6 +817,9 @@ window.api.onAction((a) => {
       break;
     case 'browser':
       if (!document.querySelector('dialog[open]')) setBrowser(!browserOpen);
+      break;
+    case 'quick-reply':
+      openReplyDialog(a.id, acc ? acc.name : 'la cuenta');
       break;
     case 'browser-url':
       if (browserOpen) { $('#br-url').focus(); $('#br-url').select(); }
@@ -1288,5 +1385,74 @@ $('#br-url').addEventListener('keydown', async (e) => {
   const r = await window.api.browserGo($('#br-url').value);
   if (r && !r.ok) $('#br-url').select();
   else $('#br-url').blur();
+});
+
+// Dónde guarda el navegador lo que descarga.
+$('#br-quick').append(fxChip('Dónde guardar', 'folder', (ev) => brDlMenu(ev.currentTarget)));
+let brMenu = null;
+function brCloseMenu() {
+  if (!brMenu) return;
+  brMenu.remove();
+  brMenu = null;
+  if (browserOpen) window.api.browserShow(brRect());
+}
+async function brDlMenu(anchor) {
+  if (brMenu) return brCloseMenu();
+  const cur = await window.api.browserDlGet();
+  window.api.browserHide(); // la vista web se dibuja encima del menú
+  const m = document.createElement('div');
+  m.className = 'fx-menu';
+  const t = document.createElement('div');
+  t.className = 'fx-menu-title';
+  t.textContent = 'Dónde guarda el navegador';
+  m.append(t);
+  const opts = [
+    ['default', 'Descargas (la carpeta de siempre)', async () => window.api.browserDlSet('default')],
+    ['ask', 'Preguntar cada vez', async () => window.api.browserDlSet('ask')],
+    ['folder', cur.mode === 'folder' ? 'Siempre en: ' + cur.dir : 'Elegir una carpeta fija…', async () => window.api.browserDlPick()],
+  ];
+  for (const [mode, label, fn] of opts) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('role', 'menuitemradio');
+    b.setAttribute('aria-checked', String(cur.mode === mode));
+    b.append(fxIcon(cur.mode === mode ? 'all' : 'folder'), document.createTextNode(label));
+    b.addEventListener('click', async () => {
+      brCloseMenu();
+      await fn();
+    });
+    m.append(b);
+  }
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.append(fxIcon('folder'), document.createTextNode('Cambiar la carpeta fija…'));
+  more.addEventListener('click', async () => {
+    brCloseMenu();
+    await window.api.browserDlPick();
+  });
+  if (cur.mode === 'folder') m.append(more);
+  document.body.append(m);
+  brMenu = m;
+  const r = anchor.getBoundingClientRect();
+  const w = m.getBoundingClientRect();
+  m.style.left = Math.max(8, Math.min(r.left, innerWidth - w.width - 8)) + 'px';
+  m.style.top = r.bottom + 6 + 'px';
+}
+document.addEventListener('pointerdown', (ev) => { if (brMenu && !brMenu.contains(ev.target) && !ev.target.closest('#br-quick')) brCloseMenu(); }, true);
+document.addEventListener('keydown', (ev) => { if (brMenu && ev.key === 'Escape') { ev.stopPropagation(); brCloseMenu(); } }, true);
+
+let brNoteTimer = null;
+window.api.onBrowserDownload((d) => {
+  const note = $('#br-note');
+  note.hidden = false;
+  note.textContent = d.ok ? `Descargado: ${d.name} · tocá para mostrarlo` : `No se pudo descargar ${d.name}`;
+  note.dataset.path = d.ok ? d.path : '';
+  clearTimeout(brNoteTimer);
+  brNoteTimer = setTimeout(() => { note.hidden = true; }, 9000);
+});
+$('#br-note').addEventListener('click', () => {
+  const p = $('#br-note').dataset.path;
+  if (p) window.api.fsReveal(p);
+  $('#br-note').hidden = true;
 });
 $('#br-url').addEventListener('focus', () => $('#br-url').select());

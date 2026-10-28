@@ -59,7 +59,9 @@ data class Account(
     /** Última pantalla de Claude visitada; solo se restaura si sigue siendo un URL HTTPS de claude.ai. */
     var lastUrl: String = "",
     /** Correo con el que se inicia sesión (opcional, sin contraseña); sirve para recordarlo y exportarlo. */
-    var email: String = ""
+    var email: String = "",
+    /** Mensaje que se escribe y se envía solo en el chat cuando termina el descanso ("" = ninguno). */
+    var autoReply: String = ""
 ) {
     /** Cada cuenta usa un perfil de WebView propio: cookies y datos totalmente separados. */
     val profileName: String get() = "acc_$id"
@@ -145,7 +147,8 @@ class AccountStore(context: Context) {
                     limitUntil = o.optLong("limitUntil", 0L),
                     limitStart = o.optLong("limitStart", 0L),
                     lastUrl = urlForRestore(svc, o.optString("lastUrl", "")) ?: "",
-                    email = o.optString("email", "")
+                    email = o.optString("email", ""),
+                    autoReply = o.optString("autoReply", "")
                 )
             }
         } catch (e: Exception) {
@@ -168,6 +171,7 @@ class AccountStore(context: Context) {
                     .put("limitStart", a.limitStart)
                     .put("lastUrl", urlForRestore(svc, a.lastUrl) ?: "")
                     .put("email", a.email)
+                    .put("autoReply", a.autoReply)
             )
         }
         prefs.edit().putString(accountsKey(svc), arr.toString()).apply()
@@ -229,6 +233,26 @@ class AccountStore(context: Context) {
         get() = prefs.getBoolean("dock_collapsed", false)
         set(value) {
             prefs.edit().putBoolean("dock_collapsed", value).apply()
+        }
+
+    /** Última página abierta en el navegador interno. */
+    var browserLastUrl: String?
+        get() = prefs.getString("browser_last_url", null)
+        set(value) {
+            prefs.edit().putString("browser_last_url", value).apply()
+        }
+
+    /** Dónde guarda el navegador lo que descarga: "default" (Descargas), "ask" (preguntar cada vez) o "folder" (carpeta fija). */
+    var browserDownloadMode: String
+        get() = prefs.getString("browser_dl_mode", "default") ?: "default"
+        set(value) {
+            prefs.edit().putString("browser_dl_mode", value).apply()
+        }
+
+    var browserDownloadDir: String?
+        get() = prefs.getString("browser_dl_dir", null)
+        set(value) {
+            prefs.edit().putString("browser_dl_dir", value).apply()
         }
 
     /** Ya se le sugirió probar la burbuja (solo una vez). */

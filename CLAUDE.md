@@ -222,3 +222,19 @@ zip -r cd.zip . -x "cd.zip" -x ".git/*" -x "*/node_modules/*" -x "*/dist/*" -x "
 - Colores por tipo de archivo: Android `FileKind` (FileOps.kt); Windows `fxKind` + reglas `.fx-ico[data-kind]` en styles.css.
 - Las acciones de un archivo ya no están arriba: se abren en un menú al mantener apretado (Android `showMenu`, PopupWindow) o clic derecho / mantener apretado (Windows `fxMenu`). La barra superior solo tiene Pegar, Nueva carpeta y Orden.
 - Abrir/ejecutar: Android abre con la app correspondiente, instala .apk (permiso REQUEST_INSTALL_PACKAGES), "Abrir con…" y "Abrir como texto"; Windows usa `shell.openPath` (ejecuta .exe/.bat y abre con la app predeterminada).
+
+## Barra de cuentas (Android) y navegador: guardado
+- Android: la barra de cuentas (dock) se despliega con un swipe hacia arriba sobre cualquier parte de ella y se pliega con swipe hacia abajo (`onInterceptTouchEvent` del dock en `buildDock`, más una manija `dockHandle`). Mientras haya un cajón grande abierto (`subPanelOpen()`: archivos, mensajes, navegador) la barra NO se pliega sola ni al tocar afuera; se oculta a mano (flecha o swipe abajo).
+- Navegador: recuerda la última página (Android `AccountStore.browserLastUrl`; Windows `state.browser.lastUrl`) y deja elegir dónde guardar: Descargas / preguntar cada vez / carpeta fija. Android: `browserDownload`, `saveToFolder`, `FolderPicker.kt` (necesita acceso a todos los archivos). Windows: `will-download` en la sesión `persist:browser`, IPC `browser:dl-get/dl-set/dl-pick`. Botón "Dónde guardar" en los accesos rápidos.
+
+## Respuesta automática al terminar el descanso
+- Al marcar el límite (hora de reinicio) se puede elegir un mensaje guardado, un texto propio o nada. Se guarda en `Account.autoReply` (Android) / `acc.autoReply` (Windows).
+- Al vencer el descanso se limpia el campo (para no enviar dos veces), se recarga la cuenta, se escribe el mensaje en la caja de chat y se envía (botón de enviar por aria-label o Enter). Si no encuentra la caja tras ~50 s, copia el mensaje al portapapeles y avisa.
+- Windows: `runAutoReply`/`doAutoReply` en main.js, trabaja en segundo plano con la vista de la cuenta (funciona con la app en la bandeja). Android: `askAutoReply`, `processAutoQueue`, `tryAutoSend` en MainActivity; necesita la app abierta (el aviso de la alarma lo dice); si vence con la app cerrada se envía al abrirla (`tick()`).
+
+## Hora exacta del límite
+- Horas y minutos arrancan en 0 (se seleccionan al tocar, no hay que borrar) y «Auto» elige AM/PM según lo próximo que viene (5 → 17:00 si ya pasó la mañana); también se puede forzar AM/PM o escribir 24 h (17). Muestra una vista previa («Se reinicia hoy a las 17:00»). Android: `pickExactTime`; Windows: `limTarget`/`limPreview` en app.js.
+
+## Notificaciones del fin del descanso
+- Con mensaje automático: el aviso dice si se envió («Mensaje enviado a …») o si falló («No se pudo enviar…», con el mensaje copiado). Android: `LimitAlarms.notifyDone/notifyResult` (misma notificación, se reemplaza); Windows: `notifyAuto`.
+- Sin mensaje automático: el aviso ofrece responder. Android: botón «Responder» (extra `EXTRA_REPLY` → `quickReply` en MainActivity, envía por `sendNow`/`enqueueAutoReply`); Windows: tocar la notificación abre el diálogo `dlg-reply` (acción `quick-reply`, IPC `account:reply`).

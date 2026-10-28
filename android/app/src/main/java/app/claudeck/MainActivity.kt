@@ -103,6 +103,13 @@ class MainActivity : AppCompatActivity() {
         /** Extra para abrir la app directamente en una cuenta (burbuja, atajos del launcher). */
         const val EXTRA_SELECT = "app.claudeck.extra.SELECT"
 
+        /** Extra para abrir el selector de respuesta rápida de una cuenta (botón «Responder» de la notificación). */
+        const val EXTRA_REPLY = "app.claudeck.extra.REPLY"
+
+        /** La pantalla principal está viva (la alarma lo usa para decir si el mensaje automático se enviará solo). */
+        @Volatile
+        var alive = false
+
         /** Tiempo sin tocar la barra de cuentas antes de que se pliegue sola. */
         private const val AUTO_HIDE_MS = 4000L
 
@@ -177,6 +184,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnBrowser: ImageButton
     private lateinit var timeBar: TimeBar
     private lateinit var dockBg: GradientDrawable
+    private lateinit var dockHandle: View
     private var dockCollapsed = false
     private var borderColor = 0
     private var borderAnim: ValueAnimator? = null
@@ -264,7 +272,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val autoHide = Runnable {
-        if (!tutorialActive && !dockCollapsed && !drawerOpen && accounts.isNotEmpty() && !keyboardOpen) {
+        if (!tutorialActive && !dockCollapsed && !drawerOpen && !subPanelOpen() && accounts.isNotEmpty() && !keyboardOpen) {
             setDockCollapsed(true, true)
         }
     }
@@ -352,6 +360,8 @@ class MainActivity : AppCompatActivity() {
             ?: store.selectedId?.takeIf { id -> accounts.any { it.id == id } }
             ?: accounts.firstOrNull()?.id
         if (start != null) select(start)
+        alive = true
+        handleReplyIntent(intent)
         updateEmptyState()
         updateShortcuts()
         if (!store.tutorialShown) {
@@ -386,9 +396,57 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        val id = intent.getStringExtra(EXTRA_SELECT) ?: return
-        intent.removeExtra(EXTRA_SELECT)
-        if (accounts.any { it.id == id } && id != currentId) select(id)
+        val id = intent.getStringExtra(EXTRA_SELECT)
+        if (id != null) {
+            intent.removeExtra(EXTRA_SELECT)
+            if (accounts.any { it.id == id } && id != currentId) select(id)
+        }
+        handleReplyIntent(intent)
+    }
+
+    /** Botón «Responder» de la notificación: abre el selector de mensajes de esa cuenta. */
+    private fun handleReplyIntent(i: Intent?) {
+        val id = i?.getStringExtra(EXTRA_REPLY) ?: return
+        i.removeExtra(EXTRA_REPLY)
+        val acc = accounts.firstOrNull { it.id == id } ?: return
+        handler.postDelayed({ quickReply(acc) }, 500)
+    }
+
+    /** Elegir uno de los mensajes guardados (o escribir uno) y enviarlo ahora en el chat de la cuenta. */
+    private fun quickReply(acc: Account) {
+        val snips = store.snippets
+        val labels = ArrayList<String>()
+        snips.forEach { labels.add(it.take(70)) }
+        labels.add("Texto propio…")
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Responder en «${acc.name}»")
+            .setItems(labels.toTypedArray()) { _, which ->
+                if (which == labels.size - 1) {
+                    val input = TextInputEditText(this)
+                    input.minLines = 2
+                    input.maxLines = 6
+                    val holder = FrameLayout(this)
+                    holder.setPadding(dp(20), dp(8), dp(20), 0)
+                    holder.addView(input, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle("Mensaje para enviar ahora")
+                        .setView(holder)
+                        .setPositiveButton("Enviar") { _, _ -> sendNow(acc, input.text?.toString().orEmpty().trim()) }
+                        .setNegativeButton("Cancelar", null)
+                        .show()
+                } else {
+                    sendNow(acc, snips[which])
+                }
+            }
+            .setNegativeButton("Ahora no", null)
+            .show()
+    }
+
+    private fun sendNow(acc: Account, text: String) {
+        if (text.isEmpty()) return
+        acc.autoReply = text.take(4000)
+        store.save(accounts)
+        enqueueAutoReply(acc)
     }
 
     override fun onResume() {
@@ -422,6 +480,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        alive = false
         handler.removeCallbacks(ticker)
         try {
             unregisterReceiver(downloadReceiver)
@@ -528,6 +587,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun anyPanelOpen(): Boolean = drawerOpen || explorerOpen || snippetsOpen || browserOpen
 
+    /** Cajones grandes (archivos, mensajes, navegador): mientras estén abiertos la barra de cuentas no se pliega sola. */
+    private fun subPanelOpen(): Boolean = explorerOpen || snippetsOpen || browserOpen
+
     private fun closePanelsExcept(keep: String) {
         if (keep != "settings") setDrawerOpen(false)
         if (keep != "files") setExplorerOpen(false)
@@ -557,6 +619,7 @@ class MainActivity : AppCompatActivity() {
             if (!stillOpen()) {
                 v.visibility = View.GONE
                 if (!anyPanelOpen()) setDockMerged(false)
+                scheduleAutoHide()
             }
         }.start()
     }
@@ -598,7 +661,138 @@ class MainActivity : AppCompatActivity() {
             }
         }
         override fun download(wv: WebView, url: String, ua: String?, cd: String?, mime: String?) =
+            browserDownload(wv, url, ua, cd, mime)
+        override fun lastUrl(): String? = store.browserLastUrl
+        override fun saveLastUrl(url: String) {
+            store.browserLastUrl = url
+        }
+        override fun downloadSettings() = showBrowserDownloadSettings()
+    }
+
+    // ---------------------------------------------------------------- Descargas del navegador interno
+
+    private fun hasAllFilesAccess(): Boolean =
+        if (Build.VERSION.SDK_INT >= 30) Environment.isExternalStorageManager()
+        else ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+
+    private fun askAllFilesAccess() {
+        if (Build.VERSION.SDK_INT >= 30) {
+            try {
+                startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
+            } catch (_: Exception) {
+                try {
+                    startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                } catch (_: Exception) {
+                    snack("Activá el acceso a todos los archivos para AlternAIs en los ajustes del sistema")
+                }
+            }
+        } else {
+            storageLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
+    }
+
+    /** Descarga desde el navegador según lo elegido: Descargas, preguntar cada vez o una carpeta fija. */
+    private fun browserDownload(wv: WebView, url: String, ua: String?, cd: String?, mime: String?) {
+        val web = url.startsWith("http://") || url.startsWith("https://")
+        val mode = store.browserDownloadMode
+        if (!web || mode == "default") {
             handleDownload(wv, url, ua, cd, mime)
+            return
+        }
+        if (!hasAllFilesAccess()) {
+            snack("Para elegir la carpeta hace falta el acceso a los archivos", "Dar permiso") { askAllFilesAccess() }
+            return
+        }
+        val root = Environment.getExternalStorageDirectory()
+        val fixed = store.browserDownloadDir?.let { File(it) }
+        if (mode == "folder" && fixed != null && fixed.isDirectory) {
+            saveToFolder(url, ua, cd, mime, fixed)
+            return
+        }
+        val start = fixed ?: Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val name = URLUtil.guessFileName(url, cd, mime)
+        FolderPicker.show(this, root, start, "Guardar «$name» en…") { dir ->
+            store.browserDownloadDir = dir.path
+            saveToFolder(url, ua, cd, mime, dir)
+        }
+    }
+
+    /** Baja el archivo en un hilo propio (con las cookies del navegador) y lo deja en la carpeta elegida. */
+    private fun saveToFolder(url: String, ua: String?, cd: String?, mime: String?, dir: File) {
+        val name = URLUtil.guessFileName(url, cd, mime)
+        snack("Descargando $name…")
+        val cookie = try {
+            if (multiProfileOk) ProfileStore.getInstance().getProfile(BrowserPanel.PROFILE)?.cookieManager?.getCookie(url)
+            else android.webkit.CookieManager.getInstance().getCookie(url)
+        } catch (_: Exception) {
+            null
+        }
+        Thread {
+            try {
+                dir.mkdirs()
+                val target = FileOps.uniqueFile(dir, name)
+                val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                conn.connectTimeout = 20000
+                conn.readTimeout = 30000
+                conn.instanceFollowRedirects = true
+                if (!cookie.isNullOrEmpty()) conn.setRequestProperty("Cookie", cookie)
+                if (!ua.isNullOrEmpty()) conn.setRequestProperty("User-Agent", ua)
+                if (conn.responseCode !in 200..299) throw java.io.IOException("HTTP " + conn.responseCode)
+                conn.inputStream.use { input -> target.outputStream().use { out -> input.copyTo(out) } }
+                MediaScannerConnection.scanFile(this, arrayOf(target.path), null, null)
+                runOnUiThread {
+                    snack("Guardado en ${dir.name}: ${target.name}", "Abrir") {
+                        try {
+                            val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.files", target)
+                            openDownloaded(uri, MimeTypeMap.getSingleton().getMimeTypeFromExtension(target.extension.lowercase()))
+                        } catch (_: Exception) {
+                            snack("No se pudo abrir el archivo")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread { snack("No se pudo descargar: " + (e.message ?: "")) }
+            }
+        }.start()
+    }
+
+    private fun showBrowserDownloadSettings() {
+        val modes = arrayOf("default", "ask", "folder")
+        val dir = store.browserDownloadDir
+        val labels = arrayOf(
+            "Carpeta Descargas (la de siempre)",
+            "Preguntar dónde guardar cada vez",
+            if (dir != null) "Siempre en: ${dir.removePrefix(Environment.getExternalStorageDirectory().path).ifEmpty { "/" }}"
+            else "Siempre en una carpeta fija…"
+        )
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Dónde guarda el navegador")
+            .setSingleChoiceItems(labels, modes.indexOf(store.browserDownloadMode).coerceAtLeast(0)) { d, which ->
+                d.dismiss()
+                when (modes[which]) {
+                    "default" -> store.browserDownloadMode = "default"
+                    "ask" -> {
+                        store.browserDownloadMode = "ask"
+                        if (!hasAllFilesAccess()) snack("Para elegir la carpeta hace falta el acceso a los archivos", "Dar permiso") { askAllFilesAccess() }
+                    }
+                    else -> {
+                        if (!hasAllFilesAccess()) {
+                            snack("Para elegir la carpeta hace falta el acceso a los archivos", "Dar permiso") { askAllFilesAccess() }
+                        } else {
+                            val root = Environment.getExternalStorageDirectory()
+                            val start = dir?.let { File(it) }
+                                ?: Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                            FolderPicker.show(this, root, start, "Carpeta fija para el navegador") { f ->
+                                store.browserDownloadDir = f.path
+                                store.browserDownloadMode = "folder"
+                                snack("Se guardará en ${f.name}")
+                            }
+                        }
+                    }
+                }
+            }
+            .setNegativeButton("Cerrar", null)
+            .show()
     }
 
     /** Mensajes guardados: cajón con la lista; tocar uno lo escribe en el chat de la cuenta activa. */
@@ -811,6 +1005,11 @@ class MainActivity : AppCompatActivity() {
                     step(if (vx < 0) 1 else -1)
                     return true
                 }
+                // Swipe hacia arriba despliega la barra de cuentas (como el cajón de un launcher); hacia abajo la pliega.
+                if (abs(vy) > abs(vx) && abs(vy) > 500f) {
+                    setDockCollapsed(vy > 0, true)
+                    return true
+                }
                 return false
             }
         })
@@ -852,7 +1051,7 @@ class MainActivity : AppCompatActivity() {
     /** Reinicia la cuenta regresiva para plegar la barra sola (si está desplegada). */
     private fun scheduleAutoHide() {
         handler.removeCallbacks(autoHide)
-        if (!tutorialActive && !dockCollapsed && accounts.isNotEmpty()) handler.postDelayed(autoHide, AUTO_HIDE_MS)
+        if (!tutorialActive && !dockCollapsed && !subPanelOpen() && accounts.isNotEmpty()) handler.postDelayed(autoHide, AUTO_HIDE_MS)
     }
 
     /** Borde superior de la barra con el color de la cuenta activa (separa la barra de la pantalla de Claude). */
@@ -942,6 +1141,10 @@ class MainActivity : AppCompatActivity() {
         btnFiles.imageTintList = ColorStateList.valueOf(c)
         btnBrowser.imageTintList = ColorStateList.valueOf(c)
         btnToggleDock.imageTintList = ColorStateList.valueOf(c)
+        dockHandle.background = GradientDrawable().apply {
+            cornerRadius = dp(2).toFloat()
+            setColor(ColorUtils.setAlphaComponent(c, 150))
+        }
         drawerCaption?.setTextColor(c)
         paintServiceTabs()
         drawerIcons.forEach { tv -> tv.compoundDrawablesRelative[0]?.setTint(c) }
@@ -1190,7 +1393,7 @@ class MainActivity : AppCompatActivity() {
         if (!tutorialActive && ev.actionMasked == MotionEvent.ACTION_DOWN && ::dock.isInitialized && ::drawer.isInitialized &&
             !dockCollapsed && accounts.isNotEmpty() && dock.visibility == View.VISIBLE &&
             !hit(dock, ev) && !(drawerOpen && hit(drawer, ev)) &&
-            !(panelHit(ev))
+            !subPanelOpen() && !(panelHit(ev))
         ) {
             setDockCollapsed(true, true)
         }
@@ -1211,9 +1414,47 @@ class MainActivity : AppCompatActivity() {
         parent.removeView(old)
 
         val d = object : LinearLayout(this@MainActivity) {
+            private var downX = 0f
+            private var downY = 0f
+            private var dragging = false
+            private val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+
             override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
                 scheduleAutoHide()
                 return super.dispatchTouchEvent(ev)
+            }
+
+            // Un arrastre vertical sobre cualquier parte de la barra: arriba la despliega, abajo la pliega.
+            override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+                when (ev.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        downX = ev.rawX
+                        downY = ev.rawY
+                        dragging = false
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dy = ev.rawY - downY
+                        if (!dragging && abs(dy) > slop * 2 && abs(dy) > abs(ev.rawX - downX) * 1.5f) dragging = true
+                    }
+                }
+                return dragging
+            }
+
+            override fun onTouchEvent(ev: MotionEvent): Boolean {
+                when (ev.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        downX = ev.rawX
+                        downY = ev.rawY
+                        return true
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        val dy = ev.rawY - downY
+                        if (dragging && abs(dy) > dp(28)) setDockCollapsed(dy > 0, true)
+                        dragging = false
+                    }
+                    MotionEvent.ACTION_CANCEL -> dragging = false
+                }
+                return true
             }
         }
         d.id = R.id.dock
@@ -1225,6 +1466,14 @@ class MainActivity : AppCompatActivity() {
         dockBg = newTrayBg()
         dockRadius = dp(22).toFloat()
         dockLayer = styleTray(d, dockBg) { dockRadius }
+
+        // Manija: deja ver que la barra se despliega con un swipe hacia arriba
+        val handleBar = View(this)
+        dockHandle = handleBar
+        d.addView(handleBar, LinearLayout.LayoutParams(dp(36), dp(4)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            topMargin = dp(7)
+        })
 
         // Fila de info
         val row = LinearLayout(this)
@@ -1455,13 +1704,16 @@ class MainActivity : AppCompatActivity() {
                 a.limitUntil = 0L
                 a.limitStart = 0L
                 changed = true
-                Toast.makeText(this, "«${a.name}» ya puede usarse de nuevo", Toast.LENGTH_LONG).show()
+                if (a.autoReply.isEmpty()) snack("«${a.name}» ya puede usarse de nuevo", "Responder") { quickReply(a) }
+                else Toast.makeText(this, "«${a.name}» ya puede usarse de nuevo", Toast.LENGTH_LONG).show()
             }
         }
         if (changed) {
             store.save(accounts)
             BubbleService.refresh()
         }
+        // Descanso terminado con respuesta automática pendiente (también si la app estaba cerrada cuando venció).
+        accounts.filter { it.autoReply.isNotEmpty() && !it.limitActive(now) }.forEach { enqueueAutoReply(it) }
         refreshChipTexts()
         updateInfo()
     }
@@ -2581,26 +2833,123 @@ class MainActivity : AppCompatActivity() {
         picker.show(supportFragmentManager, "limit_date")
     }
 
+    /**
+     * Hora exacta: horas y minutos arrancan en cero (se seleccionan al tocar, así se escribe sin borrar).
+     * «Auto» elige solo AM o PM: lo próximo que viene (si son las 16:30 y escribís 5, es 17:00 de hoy).
+     */
     private fun pickExactTime(acc: Account) {
-        val now = Calendar.getInstance()
-        val picker = MaterialTimePicker.Builder()
-            .setTimeFormat(TimeFormat.CLOCK_24H)
-            .setHour(now.get(Calendar.HOUR_OF_DAY))
-            .setMinute(now.get(Calendar.MINUTE))
-            .setTitleText("Hora en que se reinicia")
-            .build()
-        picker.addOnPositiveButtonClickListener {
-            val target = Calendar.getInstance()
-            target.set(Calendar.HOUR_OF_DAY, picker.hour)
-            target.set(Calendar.MINUTE, picker.minute)
-            target.set(Calendar.SECOND, 0)
-            target.set(Calendar.MILLISECOND, 0)
-            if (target.timeInMillis <= System.currentTimeMillis()) {
-                target.add(Calendar.DAY_OF_YEAR, 1)
-            }
-            setLimit(acc, target.timeInMillis)
+        fun field(initial: String, hint: String): TextInputEditText {
+            val e = TextInputEditText(this)
+            e.setText(initial)
+            e.hint = hint
+            e.inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            e.filters = arrayOf(android.text.InputFilter.LengthFilter(2))
+            e.gravity = Gravity.CENTER
+            e.textSize = 26f
+            e.setSelectAllOnFocus(true)
+            return e
         }
-        picker.show(supportFragmentManager, "limit_time")
+        val hour = field("0", "Hora")
+        val min = field("00", "Min")
+        val modes = arrayOf("Auto", "AM", "PM")
+        var mode = 0
+        val preview = TextView(this)
+        preview.textSize = 14f
+        preview.setTextColor(ColorUtils.setAlphaComponent(store.onSurface, 170))
+        preview.gravity = Gravity.CENTER
+
+        fun target(): Calendar? {
+            val h = hour.text?.toString().orEmpty().ifEmpty { "0" }.toIntOrNull() ?: return null
+            val m = min.text?.toString().orEmpty().ifEmpty { "0" }.toIntOrNull() ?: return null
+            if (h !in 0..23 || m !in 0..59) return null
+            val now = System.currentTimeMillis()
+            fun at(hh: Int, addDays: Int) = Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, hh)
+                set(Calendar.MINUTE, m)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+                add(Calendar.DAY_OF_YEAR, addDays)
+            }
+            fun nextOf(hh: Int): Calendar = if (at(hh, 0).timeInMillis > now) at(hh, 0) else at(hh, 1)
+            if (h == 0 || h > 12) return nextOf(h) // 24 h tal cual
+            val am = h % 12
+            val pm = am + 12
+            return when (mode) {
+                1 -> nextOf(am)
+                2 -> nextOf(pm)
+                else -> listOf(nextOf(am), nextOf(pm)).minByOrNull { it.timeInMillis }
+            }
+        }
+
+        fun refresh() {
+            val t = target()
+            preview.text = if (t == null) "Hora no válida" else {
+                val same = DateFormat.format("yyyyMMdd", t).toString() == DateFormat.format("yyyyMMdd", System.currentTimeMillis()).toString()
+                "Se reinicia " + (if (same) "hoy" else "mañana") + " a las " + DateFormat.format("HH:mm", t)
+            }
+        }
+        val watcher = object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
+            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) = refresh()
+        }
+        hour.addTextChangedListener(watcher)
+        min.addTextChangedListener(watcher)
+
+        val row = LinearLayout(this)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.gravity = Gravity.CENTER_VERTICAL
+        row.addView(hour, LinearLayout.LayoutParams(dp(80), ViewGroup.LayoutParams.WRAP_CONTENT))
+        val colon = TextView(this)
+        colon.text = ":"
+        colon.textSize = 26f
+        colon.setTextColor(store.onSurface)
+        row.addView(colon, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = dp(6)
+            marginEnd = dp(6)
+        })
+        row.addView(min, LinearLayout.LayoutParams(dp(80), ViewGroup.LayoutParams.WRAP_CONTENT))
+        val ap = TextView(this)
+        ap.text = modes[0]
+        ap.textSize = 16f
+        ap.setTextColor(accent())
+        ap.gravity = Gravity.CENTER
+        ap.setPadding(dp(16), dp(10), dp(16), dp(10))
+        ap.background = GradientDrawable().apply {
+            cornerRadius = dp(18).toFloat()
+            setStroke(dp(1), accent())
+        }
+        ap.setOnClickListener {
+            mode = (mode + 1) % modes.size
+            ap.text = modes[mode]
+            refresh()
+        }
+        row.addView(ap, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = dp(16)
+        })
+
+        val col = LinearLayout(this)
+        col.orientation = LinearLayout.VERTICAL
+        col.gravity = Gravity.CENTER_HORIZONTAL
+        col.setPadding(dp(20), dp(12), dp(20), 0)
+        col.addView(row)
+        col.addView(preview, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(12)
+        })
+        refresh()
+
+        val dlg = MaterialAlertDialogBuilder(this)
+            .setTitle("Hora en que se reinicia")
+            .setMessage("Tocá «Auto» para elegir AM o PM a mano.")
+            .setView(col)
+            .setPositiveButton("Aceptar") { _, _ ->
+                val t = target()
+                if (t == null) snack("Hora no válida") else setLimit(acc, t.timeInMillis)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+        hour.requestFocus()
+        dlg.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
     }
 
     private fun setLimit(acc: Account, until: Long) {
@@ -2608,12 +2957,147 @@ class MainActivity : AppCompatActivity() {
         if (until > 0L) askNotificationPermissionThen { }
         acc.limitUntil = until
         acc.limitStart = if (until > 0L) System.currentTimeMillis() else 0L
+        if (until <= 0L) acc.autoReply = ""
         onAccountsChanged()
         refreshChipTexts()
         updateInfo()
         if (until > 0L && acc.id == currentId) {
             val alt = accounts.firstOrNull { it.id != acc.id && !it.limitActive() }
             if (alt != null) snack("«${acc.name}» en descanso", "Ir a «${alt.name}»") { select(alt.id) }
+        }
+        if (until > 0L) askAutoReply(acc)
+    }
+
+    // ---------------------------------------------------------------- Respuesta automática
+
+    /** Después de marcar el límite: ofrece un mensaje guardado (o propio) para enviar solo al terminar el descanso. */
+    private fun askAutoReply(acc: Account) {
+        val snips = store.snippets
+        val labels = ArrayList<String>()
+        labels.add("No responder")
+        snips.forEach { labels.add(it.take(70)) }
+        labels.add("Texto propio…")
+        val cur = acc.autoReply
+        val checked = when {
+            cur.isEmpty() -> 0
+            snips.indexOf(cur) >= 0 -> snips.indexOf(cur) + 1
+            else -> labels.size - 1
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Respuesta automática")
+            .setMessage("Al terminar el descanso se escribe y se envía sola en el chat de «${acc.name}». La app tiene que estar abierta (o abrirla cuando llegue el aviso).")
+            .setSingleChoiceItems(labels.toTypedArray(), checked) { d, which ->
+                d.dismiss()
+                when {
+                    which == 0 -> setAutoReply(acc, "")
+                    which == labels.size - 1 -> ownAutoReply(acc)
+                    else -> setAutoReply(acc, snips[which - 1])
+                }
+            }
+            .setNegativeButton("Ahora no", null)
+            .show()
+    }
+
+    private fun ownAutoReply(acc: Account) {
+        val input = TextInputEditText(this)
+        input.setText(acc.autoReply)
+        input.minLines = 2
+        input.maxLines = 6
+        val holder = FrameLayout(this)
+        holder.setPadding(dp(20), dp(8), dp(20), 0)
+        holder.addView(input, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Mensaje automático")
+            .setView(holder)
+            .setPositiveButton("Guardar") { _, _ -> setAutoReply(acc, input.text?.toString().orEmpty().trim()) }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun setAutoReply(acc: Account, text: String) {
+        acc.autoReply = text.take(4000)
+        store.save(accounts)
+        snack(if (text.isEmpty()) "Sin respuesta automática" else "Se enviará «${text.take(40)}» cuando termine el descanso")
+    }
+
+    private val autoQueue = ArrayDeque<String>()
+    private var autoBusy = false
+
+    private fun enqueueAutoReply(a: Account) {
+        if (autoQueue.contains(a.id)) return
+        autoQueue.add(a.id)
+        processAutoQueue()
+    }
+
+    /** Una respuesta a la vez: abre la cuenta, recarga la página y, cuando aparece la caja de chat, escribe y envía. */
+    private fun processAutoQueue() {
+        if (autoBusy) return
+        val id = autoQueue.removeFirstOrNull() ?: return
+        val acc = accounts.firstOrNull { it.id == id }
+        if (acc == null || acc.autoReply.isEmpty() || acc.limitActive()) {
+            processAutoQueue()
+            return
+        }
+        autoBusy = true
+        val text = acc.autoReply
+        acc.autoReply = "" // se limpia antes de enviar: nunca se manda dos veces
+        store.save(accounts)
+        select(acc.id)
+        reloadWithLogo(acc.id)
+        snack("Enviando la respuesta automática a «${acc.name}»…")
+        handler.postDelayed({ tryAutoSend(acc, text, 0) }, 6000)
+    }
+
+    private fun finishAutoReply() {
+        autoBusy = false
+        processAutoQueue()
+    }
+
+    private fun tryAutoSend(acc: Account, text: String, attempt: Int) {
+        val wv = webViews[acc.id]
+        if (wv == null) {
+            finishAutoReply()
+            return
+        }
+        val js = """
+            (function(t){
+              var c=[].slice.call(document.querySelectorAll('div[contenteditable="true"],textarea')).filter(function(x){return x.offsetParent!==null;});
+              var el=c.length?c[c.length-1]:null;
+              if(!el) return 'none';
+              el.focus();
+              if(el.isContentEditable){
+                var s=window.getSelection();s.selectAllChildren(el);s.collapseToEnd();
+                if(!document.execCommand('insertText',false,t)) return 'none';
+              } else {
+                var set=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;
+                set.call(el,(el.value||'')+t);
+                el.dispatchEvent(new Event('input',{bubbles:true}));
+              }
+              setTimeout(function(){
+                var b=[].slice.call(document.querySelectorAll('button')).filter(function(x){
+                  var l=(x.getAttribute('aria-label')||'')+' '+(x.getAttribute('data-testid')||'');
+                  return /send|enviar|submit/i.test(l)&&!x.disabled&&x.offsetParent!==null;});
+                if(b.length){b[b.length-1].click();return;}
+                ['keydown','keypress','keyup'].forEach(function(n){
+                  el.dispatchEvent(new KeyboardEvent(n,{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true}));});
+              },600);
+              return 'ok';
+            })(${JSONObject.quote(text)})
+        """.trimIndent()
+        wv.evaluateJavascript(js) { res ->
+            if (res?.contains("ok") == true) {
+                snack("Respuesta enviada a «${acc.name}»")
+                LimitAlarms.notifyResult(this, acc.id, acc.name, true, text)
+                finishAutoReply()
+            } else if (attempt < 25) {
+                handler.postDelayed({ tryAutoSend(acc, text, attempt + 1) }, 2000)
+            } else {
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("AlternAIs", text))
+                snack("No pude enviar la respuesta a «${acc.name}»: copié el mensaje, pegalo en el chat")
+                LimitAlarms.notifyResult(this, acc.id, acc.name, false, text)
+                finishAutoReply()
+            }
         }
     }
 

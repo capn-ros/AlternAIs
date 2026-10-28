@@ -78,6 +78,8 @@ let state = {
   settings: { railPos: 'left', launchAtLogin: false, closeToTray: false },
   // Mensajes guardados para escribir en el chat (compartidos por Claude y Replit).
   snippets: [],
+  // Navegador interno: última página y dónde guarda las descargas (default = Descargas, ask = preguntar, folder = carpeta fija).
+  browser: { lastUrl: '', dlMode: 'default', dlDir: '' },
 };
 const DEFAULT_SNIPPETS = [
   'Seguí donde te quedaste.',
@@ -108,6 +110,7 @@ function sanitizeAccounts(list, svc) {
       limitStart: Number(a.limitStart) > 0 ? Number(a.limitStart) : 0,
       lastUrl: cleanUrl(a.lastUrl, svc) || '',
       email: cleanEmail(a.email),
+      autoReply: cleanText(a.autoReply, 4000),
     }));
 }
 
@@ -127,6 +130,12 @@ function loadState() {
     state.themes = {
       claude: th.claude === 'light' ? 'light' : 'dark',
       replit: th.replit === 'dark' ? 'dark' : 'light',
+    };
+    const br = raw.browser && typeof raw.browser === 'object' ? raw.browser : {};
+    state.browser = {
+      lastUrl: typeof br.lastUrl === 'string' && /^https?:\/\//i.test(br.lastUrl) ? br.lastUrl.slice(0, 2000) : '',
+      dlMode: ['default', 'ask', 'folder'].includes(br.dlMode) ? br.dlMode : 'default',
+      dlDir: typeof br.dlDir === 'string' && path.isAbsolute(br.dlDir) ? br.dlDir : '',
     };
     const st = raw.settings && typeof raw.settings === 'object' ? raw.settings : {};
     state.settings = {
@@ -163,6 +172,7 @@ function saveState() {
       tutorialShown: state.tutorialShown,
       snippets: state.snippets,
       settings: state.settings,
+      browser: state.browser,
     };
     const tmp = stateFile() + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(out, null, 2));
@@ -478,6 +488,33 @@ function ensureBrowser() {
   for (const ev of ['did-navigate', 'did-navigate-in-page', 'page-title-updated', 'did-start-loading', 'did-stop-loading', 'did-fail-load']) {
     wc.on(ev, sendBrowserState);
   }
+  // Recuerda la última página para retomarla la próxima vez.
+  let rememberTimer = null;
+  const remember = () => {
+    const u = wc.getURL();
+    if (!/^https?:\/\//i.test(u) || u === state.browser.lastUrl) return;
+    state.browser.lastUrl = u;
+    clearTimeout(rememberTimer);
+    rememberTimer = setTimeout(saveState, 1500);
+  };
+  wc.on('did-navigate', remember);
+  wc.on('did-navigate-in-page', remember);
+  // Descargas: Descargas, carpeta fija, o dejar que Electron pregunte (ask).
+  wc.session.on('will-download', (_e, item) => {
+    const { dlMode, dlDir } = state.browser;
+    if (dlMode === 'ask') return; // diálogo nativo «Guardar como»
+    let dir = app.getPath('downloads');
+    if (dlMode === 'folder' && dlDir && fs.existsSync(dlDir)) dir = dlDir;
+    const name = path.basename(item.getFilename() || 'descarga');
+    const ext = path.extname(name);
+    const base = ext ? name.slice(0, -ext.length) : name;
+    let target = path.join(dir, name);
+    for (let i = 2; fs.existsSync(target); i++) target = path.join(dir, `${base} (${i})${ext}`);
+    item.setSavePath(target);
+    item.once('done', (_ev, st) => {
+      if (win && !win.isDestroyed()) win.webContents.send('browser-download', { ok: st === 'completed', name: path.basename(target), path: target });
+    });
+  });
   browserView.setVisible(false);
   win.contentView.addChildView(browserView);
   return browserView;
@@ -518,6 +555,79 @@ function handleShortcut(event, input) {
 
 // ---------------------------------------------------------------- Límites de uso
 
+// Respuesta automática: al terminar el descanso escribe el mensaje elegido en el chat de la cuenta y lo envía.
+// Trabaja en segundo plano con la vista de esa cuenta (sin cambiar la que estás mirando).
+let autoChain = Promise.resolve();
+function runAutoReply(acc, text) {
+  autoChain = autoChain.then(() => doAutoReply(acc, text)).catch(() => {});
+}
+
+// Avisos de la respuesta automática. Tocarlos abre la ventana; con `replyId` abre además el selector de respuesta rápida.
+function notifyAuto(title, body, replyId) {
+  if (!Notification.isSupported()) return;
+  const n = new Notification({ title, body });
+  n.on('click', () => {
+    showWindow();
+    if (replyId && win && !win.isDestroyed()) win.webContents.send('action', { type: 'quick-reply', id: replyId });
+  });
+  n.show();
+}
+
+async function doAutoReply(acc, text) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  let view = views.get(acc.id);
+  if (view && !view.webContents.isDestroyed()) {
+    view.webContents.reload(); // página fresca: sin el aviso de límite
+  } else {
+    view = createView(acc);
+  }
+  const wc = view.webContents;
+  await sleep(1500);
+  for (let i = 0; i < 20 && wc.isLoading(); i++) await sleep(1000);
+  await sleep(2500); // que la página termine de armarse
+  const js = `(function (t) {
+    function isEd(e) { return e && (e.isContentEditable || e.tagName === 'TEXTAREA'); }
+    var c = [].slice.call(document.querySelectorAll('div[contenteditable="true"],textarea')).filter(function (x) { return x.offsetParent !== null; });
+    var el = c.length ? c[c.length - 1] : null;
+    if (!isEd(el)) return 'none';
+    el.focus();
+    if (el.isContentEditable) {
+      var s = window.getSelection(); s.selectAllChildren(el); s.collapseToEnd();
+      if (!document.execCommand('insertText', false, t)) return 'none';
+    } else {
+      var set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+      set.call(el, (el.value || '') + t);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    setTimeout(function () {
+      var b = [].slice.call(document.querySelectorAll('button')).filter(function (x) {
+        var l = (x.getAttribute('aria-label') || '') + ' ' + (x.getAttribute('data-testid') || '');
+        return /send|enviar|submit/i.test(l) && !x.disabled && x.offsetParent !== null;
+      });
+      if (b.length) { b[b.length - 1].click(); return; }
+      ['keydown', 'keypress', 'keyup'].forEach(function (n) {
+        el.dispatchEvent(new KeyboardEvent(n, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+      });
+    }, 600);
+    return 'ok';
+  })(${JSON.stringify(text)})`;
+  for (let i = 0; i < 25; i++) {
+    let r = 'none';
+    try {
+      r = await wc.executeJavaScript(js);
+    } catch (_) {
+      r = 'none';
+    }
+    if (r === 'ok') {
+      notifyAuto(`Mensaje enviado a «${acc.name}»`, `Terminó el descanso. Se envió: «${text.length > 90 ? text.slice(0, 90) + '…' : text}»`);
+      return;
+    }
+    await sleep(2000);
+  }
+  clipboard.writeText(text);
+  notifyAuto(`No se pudo enviar el mensaje a «${acc.name}»`, 'Copié el mensaje al portapapeles. Tocá para responder desde acá o pegalo en el chat.', acc.id);
+}
+
 function checkLimits() {
   updateTrayMenu();
   const now = Date.now();
@@ -527,14 +637,14 @@ function checkLimits() {
       a.limitUntil = 0;
       a.limitStart = 0;
       changed = true;
-      if (Notification.isSupported()) {
-        const n = new Notification({
-          title: `«${a.name}» ya puede usarse`,
-          body: 'Terminó el descanso por límite de uso.',
-        });
-        n.on('click', showWindow);
-        n.show();
+      const hadAuto = !!a.autoReply;
+      if (a.autoReply) {
+        const text = a.autoReply;
+        a.autoReply = ''; // se limpia antes de enviar para que nunca se mande dos veces
+        runAutoReply(a, text);
       }
+      // Con mensaje automático el aviso llega cuando se envía (o falla); sin él, se ofrece responder desde la notificación.
+      if (!hadAuto) notifyAuto(`«${a.name}» ya puede usarse`, 'Terminó el descanso. Tocá para responder con un mensaje guardado.', a.id);
     }
   }
   if (changed) {
@@ -636,14 +746,25 @@ function registerIpc() {
     if (!reloadView(id)) selectAccount(id);
   });
 
-  ipcMain.handle('account:limit', (_e, id, until) => {
+  ipcMain.handle('account:limit', (_e, id, until, auto) => {
     const acc = find(id);
     if (!acc) return;
     const n = Number(until);
     acc.limitUntil = Number.isFinite(n) && n > Date.now() ? n : 0;
     acc.limitStart = acc.limitUntil > 0 ? Date.now() : 0;
+    // Respuesta automática: un mensaje que se escribe y se envía solo cuando termina el descanso.
+    acc.autoReply = acc.limitUntil > 0 ? cleanText(auto, 4000) : '';
     saveState();
     broadcast();
+  });
+
+  // Respuesta rápida: escribe y envía un mensaje ahora en el chat de la cuenta (en segundo plano).
+  ipcMain.handle('account:reply', (_e, id, text) => {
+    const acc = find(id);
+    const t = cleanText(text, 4000);
+    if (!acc || !t) return { ok: false };
+    runAutoReply(acc, t);
+    return { ok: true };
   });
 
   ipcMain.handle('account:wipe', async (_e, id) => {
@@ -709,7 +830,7 @@ function registerIpc() {
     const v = ensureBrowser();
     if (!browserLoaded) {
       browserLoaded = true;
-      v.webContents.loadURL(BROWSER_HOME);
+      v.webContents.loadURL(state.browser.lastUrl || BROWSER_HOME);
     }
     return browserState();
   });
@@ -740,6 +861,27 @@ function registerIpc() {
     else if (action === 'forward') (h ? h.canGoForward() && h.goForward() : wc.canGoForward() && wc.goForward());
     else if (action === 'reload') wc.reload();
     else if (action === 'stop') wc.stop();
+  });
+  ipcMain.handle('browser:dl-get', () => ({ mode: state.browser.dlMode, dir: state.browser.dlDir || app.getPath('downloads') }));
+  ipcMain.handle('browser:dl-set', (_e, mode) => {
+    if (['default', 'ask'].includes(mode)) {
+      state.browser.dlMode = mode;
+      saveState();
+    }
+    return { mode: state.browser.dlMode, dir: state.browser.dlDir || app.getPath('downloads') };
+  });
+  ipcMain.handle('browser:dl-pick', async () => {
+    const r = await dialog.showOpenDialog(win, {
+      title: 'Carpeta donde guarda el navegador',
+      defaultPath: state.browser.dlDir || app.getPath('downloads'),
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (!r.canceled && r.filePaths[0]) {
+      state.browser.dlDir = r.filePaths[0];
+      state.browser.dlMode = 'folder';
+      saveState();
+    }
+    return { mode: state.browser.dlMode, dir: state.browser.dlDir || app.getPath('downloads') };
   });
   ipcMain.handle('browser:external', () => {
     const u = browserView ? browserView.webContents.getURL() : '';

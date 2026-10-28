@@ -76,35 +76,68 @@ object LimitAlarms {
         }
     }
 
-    internal fun notifyDone(ctx: Context, id: String, name: String) {
-        val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
+    private fun channel(ctx: Context): NotificationManager? {
+        val nm = ctx.getSystemService(NotificationManager::class.java) ?: return null
         if (Build.VERSION.SDK_INT >= 26) {
             nm.createNotificationChannel(
                 NotificationChannel(CHANNEL, "Fin del descanso de una cuenta", NotificationManager.IMPORTANCE_HIGH)
             )
         }
-        val open = PendingIntent.getActivity(
-            ctx, id.hashCode(),
-            Intent(ctx, MainActivity::class.java)
-                .putExtra(MainActivity.EXTRA_SELECT, id)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-        val n: Notification = NotificationCompat.Builder(ctx, CHANNEL)
-            .setSmallIcon(R.drawable.ic_bubble)
-            .setContentTitle("«$name» ya puede usarse")
-            .setContentText("Terminó el descanso por límite de uso. Tocá para abrirla.")
-            .setContentIntent(open)
-            .setAutoCancel(true)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setDefaults(Notification.DEFAULT_ALL)
-            .build()
+        return nm
+    }
+
+    private fun openIntent(ctx: Context, id: String, reply: Boolean, code: Int): PendingIntent {
+        val i = Intent(ctx, MainActivity::class.java)
+            .putExtra(MainActivity.EXTRA_SELECT, id)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        if (reply) i.putExtra(MainActivity.EXTRA_REPLY, id)
+        return PendingIntent.getActivity(ctx, code, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+
+    private fun post(ctx: Context, id: String, nm: NotificationManager, n: Notification) {
         try {
             nm.notify(("limit" + id).hashCode(), n)
         } catch (_: SecurityException) {
             // Sin permiso de notificaciones.
         }
+    }
+
+    /** Aviso de fin de descanso. Con mensaje automático dice qué va a pasar; sin él ofrece «Responder». */
+    internal fun notifyDone(ctx: Context, id: String, name: String, auto: Boolean = false) {
+        val nm = channel(ctx) ?: return
+        val text = when {
+            auto && MainActivity.alive -> "Terminó el descanso. Enviando el mensaje automático…"
+            auto -> "Terminó el descanso. Abrí la app para que se envíe el mensaje automático."
+            else -> "Terminó el descanso por límite de uso. Podés responder desde acá."
+        }
+        val b = NotificationCompat.Builder(ctx, CHANNEL)
+            .setSmallIcon(R.drawable.ic_bubble)
+            .setContentTitle("«$name» ya puede usarse")
+            .setContentText(text)
+            .setContentIntent(openIntent(ctx, id, false, id.hashCode()))
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(Notification.DEFAULT_ALL)
+        if (!auto) b.addAction(R.drawable.ic_message, "Responder", openIntent(ctx, id, true, id.hashCode() + 1))
+        post(ctx, id, nm, b.build())
+    }
+
+    /** Resultado del mensaje automático: se envió o falló (reemplaza al aviso de fin de descanso). */
+    internal fun notifyResult(ctx: Context, id: String, name: String, ok: Boolean, text: String) {
+        val nm = channel(ctx) ?: return
+        val short = if (text.length > 80) text.take(80) + "…" else text
+        val b = NotificationCompat.Builder(ctx, CHANNEL)
+            .setSmallIcon(R.drawable.ic_bubble)
+            .setContentTitle(if (ok) "Mensaje enviado a «$name»" else "No se pudo enviar el mensaje a «$name»")
+            .setContentText(if (ok) "«$short»" else "Copié el mensaje: abrí la cuenta y pegalo. «$short»")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(if (ok) "«$text»" else "Copié el mensaje al portapapeles: abrí la cuenta y pegalo.\n«$text»"))
+            .setContentIntent(openIntent(ctx, id, false, id.hashCode()))
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(Notification.DEFAULT_ALL)
+        if (!ok) b.addAction(R.drawable.ic_message, "Responder", openIntent(ctx, id, true, id.hashCode() + 1))
+        post(ctx, id, nm, b.build())
     }
 }
 
@@ -112,7 +145,8 @@ class LimitAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getStringExtra("id") ?: return
         val name = intent.getStringExtra("name") ?: "Cuenta"
-        LimitAlarms.notifyDone(context, id, name)
+        val auto = Service.values().any { svc -> AccountStore(context).loadFor(svc).any { it.id == id && it.autoReply.isNotEmpty() } }
+        LimitAlarms.notifyDone(context, id, name, auto)
         BubbleService.refresh()
     }
 }

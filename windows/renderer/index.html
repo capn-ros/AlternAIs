@@ -145,6 +145,7 @@
         <button id="br-close" class="fx-btn" type="button" title="Cerrar (Ctrl+B)" aria-label="Cerrar el navegador"></button>
       </div>
       <div class="fx-bar" id="br-quick"></div>
+      <button type="button" id="br-note" class="br-note" hidden></button>
       <div class="br-progress" id="br-progress"></div>
       <div class="br-body" id="br-body"></div>
     </aside>
@@ -218,13 +219,41 @@
         <button id="lim-renew" class="choice">Aplicar</button>
       </div>
       <div class="exact">
-        <label>A una hora exacta <input id="lim-time" type="time" /></label>
+        <label>A una hora exacta
+          <span class="tm">
+            <input id="lim-h" type="text" inputmode="numeric" maxlength="2" value="0" aria-label="Hora" />
+            <b>:</b>
+            <input id="lim-m" type="text" inputmode="numeric" maxlength="2" value="00" aria-label="Minutos" />
+            <select id="lim-ap" aria-label="AM o PM"><option value="auto">Auto</option><option value="am">AM</option><option value="pm">PM</option></select>
+          </span>
+          <small id="lim-preview" class="tm-preview"></small>
+        </label>
         <button id="lim-exact" class="choice">Aplicar</button>
       </div>
+    </div>
+    <div class="auto-reply">
+      <label>Respuesta automática al terminar
+        <select id="lim-auto"></select>
+      </label>
+      <textarea id="lim-auto-text" rows="2" maxlength="4000" placeholder="Escribí el mensaje que se enviará" hidden></textarea>
+      <p class="sub">Se escribe y se envía solo en el chat de esta cuenta cuando termina el descanso (con la app abierta o en la bandeja).</p>
     </div>
     <div class="buttons">
       <button id="lim-clear" class="ghost">Quitar marca</button>
       <button id="lim-cancel" class="ghost">Cancelar</button>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-reply">
+    <h2 id="rp-title">Responder</h2>
+    <p class="sub">Elegí un mensaje guardado o escribí uno: se envía ahora en el chat de la cuenta.</p>
+    <div class="choices" id="rp-list"></div>
+    <label>Texto propio
+      <textarea id="rp-text" rows="2" maxlength="4000" placeholder="Escribí el mensaje"></textarea>
+    </label>
+    <div class="buttons">
+      <button type="button" id="rp-cancel" class="ghost">Cancelar</button>
+      <button type="button" id="rp-send" class="primary">Enviar</button>
     </div>
   </dialog>
 

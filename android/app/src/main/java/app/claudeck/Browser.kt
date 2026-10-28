@@ -42,6 +42,9 @@ interface BrowserHost {
     fun multiProfile(): Boolean
     fun chooseFile(callback: ValueCallback<Array<Uri>>, params: WebChromeClient.FileChooserParams): Boolean
     fun download(wv: WebView, url: String, ua: String?, cd: String?, mime: String?)
+    fun lastUrl(): String?
+    fun saveLastUrl(url: String)
+    fun downloadSettings()
 }
 
 /**
@@ -129,11 +132,13 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 loading = false
+                remember(url)
                 if (!urlField.hasFocus()) urlField.setText(url ?: "")
                 syncUi()
             }
 
             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                remember(url)
                 if (!urlField.hasFocus()) urlField.setText(url ?: "")
                 syncUi()
             }
@@ -233,6 +238,7 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
         chips.orientation = LinearLayout.HORIZONTAL
         chips.setPadding(dp(12), dp(6), dp(12), dp(6))
         for ((label, url) in QUICK) chips.addView(chip(label) { go(url) }, chipLp())
+        chips.addView(chip("Dónde guardar") { host.downloadSettings() }, chipLp())
         chips.addView(chip("Abrir en el navegador del sistema") { openExternal() }, chipLp())
         scroll.addView(chips, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         view.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -277,6 +283,11 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
         return tv
     }
 
+    /** Guarda la última página para retomarla la próxima vez (solo http y https). */
+    private fun remember(url: String?) {
+        if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) host.saveLastUrl(url)
+    }
+
     /** Habilita/deshabilita atrás y adelante y cambia el ícono de recargar por «detener» mientras carga. */
     private fun syncUi() {
         backBtn.alpha = if (webView.canGoBack()) 1f else 0.3f
@@ -291,7 +302,7 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
     fun open() {
         if (!started) {
             started = true
-            go(QUICK[0].second)
+            go(host.lastUrl() ?: QUICK[0].second)
         }
         syncUi()
     }
