@@ -305,6 +305,39 @@ class MainActivity : AppCompatActivity() {
             next?.invoke()
         }
 
+    /** Micrófono para las IA: la página lo pide, Android pregunta una vez y después queda concedido. */
+    private var pendingMic: android.webkit.PermissionRequest? = null
+    private val micLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            val req = pendingMic
+            pendingMic = null
+            if (req == null) return@registerForActivityResult
+            if (granted) {
+                req.grant(arrayOf(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+            } else {
+                req.deny()
+                snack("Sin permiso de micrófono no funciona el dictado. Podés darlo en Ajustes de la app.")
+            }
+        }
+
+    private fun handleWebPermission(req: android.webkit.PermissionRequest) {
+        val host = req.origin?.host.orEmpty()
+        val known = req.origin?.scheme == "https" &&
+            Service.values().any { s -> s.hosts.any { h -> host == h || host.endsWith(".$h") } }
+        val audio = android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE
+        if (!known || !req.resources.contains(audio)) {
+            req.deny()
+            return
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            req.grant(arrayOf(audio))
+        } else {
+            pendingMic?.deny()
+            pendingMic = req
+            micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
     private val storageLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             val next = pendingStorage
@@ -2001,6 +2034,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
         wv.webChromeClient = object : WebChromeClient() {
+            override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
+                if (request != null) handleWebPermission(request)
+            }
+
+            override fun onPermissionRequestCanceled(request: android.webkit.PermissionRequest?) {
+                if (request != null && request === pendingMic) pendingMic = null
+            }
+
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 if (view?.tag != currentId) return
                 progress.setProgressCompat(newProgress, true)

@@ -249,6 +249,8 @@ function setupSession(ses) {
   ses.setPermissionRequestHandler((_wc, permission, callback) => {
     callback(ALLOWED_PERMISSIONS.has(permission));
   });
+  // Chromium también consulta el permiso sin pedirlo (por ejemplo antes de abrir el micrófono para el dictado).
+  ses.setPermissionCheckHandler((_wc, permission) => ALLOWED_PERMISSIONS.has(permission));
 }
 
 function openLink(url, wc) {

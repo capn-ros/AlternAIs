@@ -254,3 +254,6 @@ Explorador, navegador y mensajes tienen arriba una franja con una rayita (`addSw
 
 ## Miniaturas en el explorador de archivos
 Android (`Explorer.kt`, `bindIcon` + `loadThumb`): imágenes (y videos desde Android 10) muestran miniatura de 44 dp en vez del ícono; se decodifican a tamaño chico (`inSampleSize`, rotación EXIF) en 3 hilos y se guardan en un `LruCache` por ruta+fecha; el `tag` del ícono evita que una miniatura tardía caiga en una fila reciclada. Windows: el renderer pide la miniatura (`IntersectionObserver`, solo filas visibles) al proceso principal (`fs:thumb` → `nativeImage.createThumbnailFromPath` o redimensionado) y la guarda en un `Map`. SVG queda con el ícono.
+
+## Micrófono para las IA (dictado por voz)
+Android: manifiesto con RECORD_AUDIO; `WebChromeClient.onPermissionRequest` → `handleWebPermission`: solo concede audio a páginas https de los hosts de los servicios (claude.ai, replit.com...), pide el permiso de Android la primera vez (`micLauncher`) y después queda concedido; cámara y otros permisos se deniegan. Windows: `setupSession` permite `media` (ya estaba) y ahora también responde `setPermissionCheckHandler`. Si en Windows no capta, revisar Configuración > Privacidad > Micrófono (acceso para apps de escritorio).
