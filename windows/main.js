@@ -988,6 +988,28 @@ function registerIpc() {
     return err ? { ok: false, message: err } : { ok: true };
   });
 
+  // Miniatura de una imagen para el explorador (data URL pequeña, o null si no se puede).
+  ipcMain.handle('fs:thumb', async (_e, p) => {
+    if (!okPath(p)) return null;
+    try {
+      let img = null;
+      if (typeof nativeImage.createThumbnailFromPath === 'function') {
+        try { img = await nativeImage.createThumbnailFromPath(p, { width: 96, height: 96 }); } catch (_) { img = null; }
+      }
+      if (!img || img.isEmpty()) {
+        const st = await fs.promises.stat(p);
+        if (st.size > 60 * 1024 * 1024) return null;
+        const full = nativeImage.createFromPath(p);
+        if (full.isEmpty()) return null;
+        const s = full.getSize();
+        img = full.resize(s.width >= s.height ? { width: Math.min(96, s.width) } : { height: Math.min(96, s.height) });
+      }
+      return img.isEmpty() ? null : img.toDataURL();
+    } catch (_) {
+      return null;
+    }
+  });
+
   ipcMain.handle('fs:reveal', (_e, p) => {
     if (okPath(p)) shell.showItemInFolder(p);
     return { ok: true };

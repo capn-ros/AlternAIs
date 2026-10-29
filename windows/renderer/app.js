@@ -922,6 +922,37 @@ function fxKind(e) {
   for (const [k, list] of Object.entries(FX_KINDS)) if (list.split(' ').includes(ext)) return k;
   return 'other';
 }
+// Miniaturas de imágenes: se piden solo cuando la fila entra en pantalla y se guardan en memoria.
+const fxThumbCache = new Map();
+let fxThumbObs = null;
+function fxThumbLater(row, ico, p, mtime) {
+  const key = p + '|' + mtime;
+  const apply = (url) => {
+    if (!url || !row.isConnected) return;
+    const img = new Image();
+    img.className = 'fx-thumb';
+    img.alt = '';
+    img.src = url;
+    ico.replaceWith(img);
+  };
+  if (fxThumbCache.has(key)) { apply(fxThumbCache.get(key)); return; }
+  if (!fxThumbObs) {
+    fxThumbObs = new IntersectionObserver((items) => {
+      for (const it of items) {
+        if (!it.isIntersecting) continue;
+        fxThumbObs.unobserve(it.target);
+        const job = it.target._thumbJob;
+        if (job) job();
+      }
+    }, { root: $('#fx-list'), rootMargin: '200px' });
+  }
+  row._thumbJob = async () => {
+    const url = await window.api.fsThumb(p).catch(() => null);
+    fxThumbCache.set(key, url);
+    apply(url);
+  };
+  fxThumbObs.observe(row);
+}
 const fxIsZip = (e) => !e.isDir && /\.zip$/i.test(e.name);
 
 function fxSay(text, busy) {
@@ -1253,6 +1284,7 @@ function renderFx() {
       row.append(chk);
     }
     row.append(ico, nm, meta);
+    if (kind === 'image' && !/\.svg$/i.test(e.name)) fxThumbLater(row, ico, fxJoin(fx.dir, e.name), e.mtime);
     row.addEventListener('click', (ev) => {
       if (row.dataset.held) { delete row.dataset.held; return; }
       if (ev.shiftKey && fx.last !== null) {

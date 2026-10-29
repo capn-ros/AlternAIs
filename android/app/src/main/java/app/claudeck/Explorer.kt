@@ -4,7 +4,10 @@ import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
@@ -15,6 +18,8 @@ import android.text.format.DateFormat
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
+import android.graphics.Outline
 import android.webkit.MimeTypeMap
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -699,6 +704,40 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
     private inner class Holder(val row: LinearLayout, val icon: ImageView, val name: TextView, val sub: TextView, val check: ImageView) :
         RecyclerView.ViewHolder(row)
 
+    // ---- Miniaturas de imágenes y videos (se cargan aparte, a tamaño chico, y se guardan en memoria)
+    private val thumbCache = object : android.util.LruCache<String, Bitmap>(
+        (Runtime.getRuntime().maxMemory() / 12).toInt().coerceAtMost(48 * 1024 * 1024)
+    ) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+    }
+    private val thumbPool = java.util.concurrent.Executors.newFixedThreadPool(3) { r ->
+        Thread(r, "fx-thumbs").apply { isDaemon = true }
+    }
+
+    private fun loadThumb(f: File, kind: FileKind, px: Int): Bitmap? = try {
+        if (kind == FileKind.VIDEO) {
+            if (Build.VERSION.SDK_INT >= 29) android.media.ThumbnailUtils.createVideoThumbnail(f, android.util.Size(px, px), null) else null
+        } else {
+            val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(f.absolutePath, o)
+            var sample = 1
+            val big = maxOf(o.outWidth, o.outHeight)
+            while (big / (sample * 2) >= px) sample *= 2
+            val bmp = BitmapFactory.decodeFile(f.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
+            if (bmp == null) null else {
+                val rot = when (android.media.ExifInterface(f.absolutePath).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1)) {
+                    6 -> 90f
+                    3 -> 180f
+                    8 -> 270f
+                    else -> 0f
+                }
+                if (rot == 0f) bmp else Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, Matrix().apply { postRotate(rot) }, true)
+            }
+        }
+    } catch (_: Throwable) {
+        null
+    }
+
     private inner class Adapter : RecyclerView.Adapter<Holder>() {
         override fun getItemCount(): Int = entries.size
 
@@ -731,11 +770,40 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
             return Holder(row, icon, name, sub, check)
         }
 
+        /** Ícono por tipo; para imágenes y videos, la miniatura apenas esté lista. */
+        private fun bindIcon(h: Holder, e: FileEntry) {
+            val thumbKind = !e.isDir && (e.kind == FileKind.IMAGE || e.kind == FileKind.VIDEO) &&
+                !e.name.endsWith(".svg", ignoreCase = true)
+            val size = dp(if (thumbKind) 44 else 26)
+            h.icon.layoutParams = (h.icon.layoutParams as LinearLayout.LayoutParams).apply { width = size; height = size }
+            h.icon.outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(v: View, o: Outline) = o.setRoundRect(0, 0, v.width, v.height, dp(8).toFloat())
+            }
+            h.icon.clipToOutline = thumbKind
+            h.icon.setImageResource(if (e.isDir) R.drawable.ic_folder else if (e.kind == FileKind.ARCHIVE) R.drawable.ic_zip else R.drawable.ic_file)
+            h.icon.imageTintList = android.content.res.ColorStateList.valueOf(e.kind.color)
+            h.icon.scaleType = ImageView.ScaleType.FIT_CENTER
+            val key = e.file.absolutePath + "|" + e.modified
+            h.icon.tag = key
+            if (!thumbKind) return
+            val show = { b: Bitmap ->
+                h.icon.imageTintList = null
+                h.icon.scaleType = ImageView.ScaleType.CENTER_CROP
+                h.icon.setImageBitmap(b)
+            }
+            thumbCache.get(key)?.let { show(it); return }
+            val px = dp(44) * 2
+            thumbPool.execute {
+                val b = loadThumb(e.file, e.kind, px) ?: return@execute
+                thumbCache.put(key, b)
+                h.icon.post { if (h.icon.tag == key) show(b) }
+            }
+        }
+
         override fun onBindViewHolder(h: Holder, position: Int) {
             val e = entries[position]
             val on = selected.contains(e.file)
-            h.icon.setImageResource(if (e.isDir) R.drawable.ic_folder else if (e.kind == FileKind.ARCHIVE) R.drawable.ic_zip else R.drawable.ic_file)
-            h.icon.imageTintList = android.content.res.ColorStateList.valueOf(e.kind.color)
+            bindIcon(h, e)
             h.name.text = e.name
             val date = DateFormat.format("d MMM yyyy HH:mm", e.modified).toString()
             h.sub.text = if (e.isDir) "Carpeta · $date" else FileOps.humanSize(e.size) + " · " + date

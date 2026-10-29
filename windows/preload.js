@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('api', {
   fsMkdir: (dir, name) => ipcRenderer.invoke('fs:mkdir', dir, name),
   fsUnzip: (zip, dest) => ipcRenderer.invoke('fs:unzip', zip, dest),
   fsOpen: (p) => ipcRenderer.invoke('fs:open', p),
+  fsThumb: (p) => ipcRenderer.invoke('fs:thumb', p),
   fsReveal: (p) => ipcRenderer.invoke('fs:reveal', p),
   browserOpen: () => ipcRenderer.invoke('browser:open'),
   browserShow: (rect) => ipcRenderer.invoke('browser:show', rect),

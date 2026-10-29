@@ -251,3 +251,6 @@ Diálogo de hora exacta: el teclado se pide con `showSoftInput` 250 ms después 
 
 ## Cerrar los cajones deslizando (Android)
 Explorador, navegador y mensajes tienen arriba una franja con una rayita (`addSwipeHandle` en MainActivity): arrastrarla hacia abajo mueve el cajón con el dedo y lo cierra si se suelta pasado el 20 % de su alto o con un envión; si no, vuelve. Se agrega al crear cada cajón (primer hijo del panel).
+
+## Miniaturas en el explorador de archivos
+Android (`Explorer.kt`, `bindIcon` + `loadThumb`): imágenes (y videos desde Android 10) muestran miniatura de 44 dp en vez del ícono; se decodifican a tamaño chico (`inSampleSize`, rotación EXIF) en 3 hilos y se guardan en un `LruCache` por ruta+fecha; el `tag` del ícono evita que una miniatura tardía caiga en una fila reciclada. Windows: el renderer pide la miniatura (`IntersectionObserver`, solo filas visibles) al proceso principal (`fs:thumb` → `nativeImage.createThumbnailFromPath` o redimensionado) y la guarda en un `Map`. SVG queda con el ícono.
