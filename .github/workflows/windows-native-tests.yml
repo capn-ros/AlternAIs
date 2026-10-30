@@ -1,0 +1,26 @@
+# Pegar a mano como .github/workflows/windows-native-tests.yml (cd.zip no puede modificar workflows).
+# Compila el dominio C# y corre los tests xUnit. Se lanza con "Run workflow".
+name: Windows-native tests
+on:
+  workflow_dispatch:
+  push:
+    paths: ['windows-native/**']
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Tests unitarios
+        run: dotnet test windows-native/tests/AlternAIs.Domain.Tests --logger "trx;LogFileName=results.trx" --logger "console;verbosity=normal"
+      - name: Tests de aplicación e infraestructura
+        run: dotnet test windows-native/tests/AlternAIs.Application.Tests --logger "trx;LogFileName=results.trx" --logger "console;verbosity=normal"
+      - name: Subir reporte
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tests-Windows
+          path: windows-native/tests/**/TestResults
+          retention-days: 7
