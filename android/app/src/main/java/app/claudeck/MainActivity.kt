@@ -1,5 +1,15 @@
 package app.claudeck
 
+import androidx.activity.viewModels
+import app.claudeck.domain.model.AiService
+import app.claudeck.ui.limits.LimitActions
+import app.claudeck.ui.limits.LimitViewModel
+import app.claudeck.ui.limits.createLimitHost
+import app.claudeck.ui.settings.SettingsActions
+import app.claudeck.ui.settings.SettingsViewModel
+import app.claudeck.ui.settings.createSettingsView
+import app.claudeck.ui.snippets.SnippetsViewModel
+import dagger.hilt.android.AndroidEntryPoint
 import android.Manifest
 import android.animation.ArgbEvaluator
 import android.animation.ValueAnimator
@@ -97,7 +107,18 @@ import java.io.File
 import java.util.Calendar
 import kotlin.math.abs
 
+@AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
+
+    /** Ajustes en Compose: su estado vive en el ViewModel y se actualiza solo con lo guardado. */
+    private val settingsVm: SettingsViewModel by viewModels()
+
+    /** Mensajes guardados en Compose: la lista vive en el ViewModel y se actualiza sola. */
+    private val snippetsVm: SnippetsViewModel by viewModels()
+
+    /** Diálogos de «marcar límite» en Compose: el estado de cuál está abierto vive en el ViewModel. */
+    private val limitVm: LimitViewModel by viewModels()
+    private var limitHost: android.view.View? = null
 
     companion object {
         /** Extra para abrir la app directamente en una cuenta (burbuja, atajos del launcher). */
@@ -191,7 +212,6 @@ class MainActivity : AppCompatActivity() {
     private var borderAnim: ValueAnimator? = null
     private lateinit var drawer: LinearLayout
     private lateinit var drawerBg: GradientDrawable
-    private lateinit var drawerSwitch: MaterialSwitch
     private var drawerOpen = false
     private var dockRadius = 0f
     private lateinit var dockLayer: LayerDrawable
@@ -789,10 +809,6 @@ class MainActivity : AppCompatActivity() {
         override fun close() = setSnippetsOpen(false)
         override fun message(text: String) = snack(text)
         override fun insert(text: String) = insertIntoPage(text)
-        override fun snippets(): List<String> = store.snippets
-        override fun saveSnippets(list: List<String>) {
-            store.snippets = list
-        }
     }
 
     private val browserHost = object : BrowserHost {
@@ -954,7 +970,7 @@ class MainActivity : AppCompatActivity() {
         snippetsOpen = open
         if (open) {
             closePanelsExcept("snippets")
-            val p = snippetsPanel ?: SnippetsPanel(this, snippetsHost).also {
+            val p = snippetsPanel ?: SnippetsPanel(this, snippetsHost, snippetsVm).also {
                 snippetsPanel = it
                 addSwipeHandle(it.view) { setSnippetsOpen(false) }
                 container.addView(
@@ -965,7 +981,6 @@ class MainActivity : AppCompatActivity() {
                 )
             }
             setDockMerged(true)
-            p.open()
             slideIn(p.view)
         } else {
             snippetsPanel?.view?.let { slideOut(it) { snippetsOpen } }
@@ -1297,6 +1312,7 @@ class MainActivity : AppCompatActivity() {
         }
         drawerCaption?.setTextColor(c)
         paintServiceTabs()
+        settingsVm.setAccent(c)
         drawerIcons.forEach { tv -> tv.compoundDrawablesRelative[0]?.setTint(c) }
     }
 
@@ -1319,103 +1335,44 @@ class MainActivity : AppCompatActivity() {
         drawerBg = newTrayBg()
         styleTray(d, drawerBg) { dp(22).toFloat() }
 
-        val head = LinearLayout(this)
-        head.orientation = LinearLayout.HORIZONTAL
-        head.gravity = Gravity.CENTER_VERTICAL
-        head.setPadding(dp(8), dp(0), dp(8), dp(4))
-
-        // [ Claude ]  (logo de la app)  [ Replit ]: tocar un nombre cambia de mitad de la app.
-        fun tab(service: Service): TextView {
-            val t = TextView(this)
-            t.text = service.label
-            t.textSize = 20f
-            t.gravity = Gravity.CENTER
-            t.setTypeface(t.typeface, android.graphics.Typeface.BOLD)
-            t.setPadding(dp(8), dp(10), dp(8), dp(10))
-            t.setOnClickListener { switchService(service) }
-            return t
-        }
-        val tc = tab(Service.CLAUDE)
-        val tr = tab(Service.REPLIT)
-        tabClaude = tc
-        tabReplit = tr
-        val logo = ImageView(this)
-        logo.setImageResource(R.mipmap.ic_launcher)
-        logo.outlineProvider = object : ViewOutlineProvider() {
-            override fun getOutline(view: View, outline: Outline) {
-                outline.setOval(0, 0, view.width, view.height)
+        // El contenido del cajón (pestañas Claude/Replit, logo, interruptor de burbuja y filas) es Compose.
+        val actions = object : SettingsActions {
+            override fun selectService(service: AiService) = switchService(Service.fromKey(service.key))
+            override fun toggleTheme() = this@MainActivity.toggleTheme()
+            override fun toggleBubble(turnOn: Boolean) {
+                setDrawerOpen(false)
+                setBubbleEnabled(turnOn)
+            }
+            override fun reloadCurrent() {
+                setDrawerOpen(false)
+                currentId?.let { reloadWithLogo(it) }
+            }
+            override fun openDownloads() {
+                setDrawerOpen(false)
+                try {
+                    startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
+                } catch (_: Exception) {
+                    snack("No se pudo abrir Descargas")
+                }
+            }
+            override fun exportAccounts() {
+                setDrawerOpen(false)
+                exportLauncher.launch("AlternAIs-cuentas.json")
+            }
+            override fun importAccounts() {
+                setDrawerOpen(false)
+                importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
+            }
+            override fun showAbout() {
+                setDrawerOpen(false)
+                showAboutDialog()
             }
         }
-        logo.clipToOutline = true
-        // Tocar el logo alterna entre vista oscura y clara del servicio activo (app y web).
-        logo.contentDescription = "Cambiar entre tema oscuro y claro"
-        logo.setOnClickListener { toggleTheme() }
-        head.addView(tc, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        head.addView(logo, LinearLayout.LayoutParams(dp(48), dp(48)).apply {
-            marginStart = dp(8)
-            marginEnd = dp(8)
-        })
-        head.addView(tr, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        paintServiceTabs()
-        d.addView(head)
-
-        val caption = TextView(this)
-        caption.text = "Ajustes"
-        caption.textSize = 13f
-        caption.setTextColor(accent())
-        drawerCaption = caption
-        caption.setTypeface(caption.typeface, android.graphics.Typeface.BOLD)
-        caption.setPadding(dp(16), dp(14), dp(16), dp(2))
-        d.addView(caption)
-
-        // Burbuja de cuentas, con interruptor
-        val bubbleRow = LinearLayout(this)
-        bubbleRow.orientation = LinearLayout.HORIZONTAL
-        bubbleRow.gravity = Gravity.CENTER_VERTICAL
-        bubbleRow.setPadding(dp(16), dp(6), dp(16), dp(6))
-        bubbleRow.setBackgroundResource(selectableBg())
-        val label = TextView(this)
-        label.text = "Burbuja de cuentas"
-        label.textSize = 16f
-        label.setTextColor(onSurface())
-        applyIcon(label, R.drawable.ic_bubbles)
-        drawerIcons.add(label)
-        bubbleRow.addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        drawerSwitch = MaterialSwitch(this)
-        drawerSwitch.isClickable = false
-        bubbleRow.addView(drawerSwitch)
-        bubbleRow.setOnClickListener {
-            val turnOn = !drawerSwitch.isChecked
-            setDrawerOpen(false)
-            setBubbleEnabled(turnOn)
-        }
-        d.addView(bubbleRow)
-
-        drawerIcons.add(sheetRow(d, null, "Recargar cuenta actual", R.drawable.ic_reload) {
-            setDrawerOpen(false)
-            currentId?.let { reloadWithLogo(it) }
-        })
-        drawerIcons.add(sheetRow(d, null, "Ver descargas", R.drawable.ic_download) {
-            setDrawerOpen(false)
-            try {
-                startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
-            } catch (_: Exception) {
-                snack("No se pudo abrir Descargas")
-            }
-        })
-        drawerIcons.add(sheetRow(d, null, "Exportar cuentas", R.drawable.ic_download) {
-            setDrawerOpen(false)
-            exportLauncher.launch("AlternAIs-cuentas.json")
-        })
-        drawerIcons.add(sheetRow(d, null, "Importar cuentas", R.drawable.ic_upload) {
-            setDrawerOpen(false)
-            importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
-        })
-        drawerAboutRow = sheetRow(d, null, "Acerca de AlternAIs", R.drawable.ic_info) {
-            setDrawerOpen(false)
-            showAboutDialog()
-        }
-        drawerIcons.add(drawerAboutRow!!)
+        settingsVm.setAccent(accent())
+        d.addView(
+            createSettingsView(this, settingsVm, actions),
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        )
 
         d.visibility = View.GONE
         container.addView(
@@ -1510,7 +1467,7 @@ class MainActivity : AppCompatActivity() {
         drawer.animate().cancel()
         if (open) {
             closePanelsExcept("settings")
-            drawerSwitch.isChecked = store.bubbleEnabled && BubbleService.canDraw(this)
+            settingsVm.setBubbleShown(store.bubbleEnabled && BubbleService.canDraw(this))
             setDockMerged(true)
             drawer.alpha = 0f
             drawer.visibility = View.VISIBLE
@@ -2560,7 +2517,7 @@ class MainActivity : AppCompatActivity() {
                 title = "Acerca de"
                 body = "Acerca de AlternAIs muestra qué hace la app y quién la pensó y diseñó. La opción está en este menú."
                 setDrawerOpen(true)
-                target = drawerAboutRow
+                target = drawer // «Acerca de» ahora vive dentro de Compose: se resalta todo el cajón
             }
         }
         overlay.setStep(index + 1, 5, title, body, target)
@@ -2927,38 +2884,31 @@ class MainActivity : AppCompatActivity() {
 
     // ---------------------------------------------------------------- Límites de uso
 
-    /**
-     * Opciones según la cuota de cada IA. Claude: ventana de 5 h y tope semanal. Replit: Modo gratis
-     * (se renueva cada 5 h y tiene tope semanal), créditos diarios del plan Starter y créditos
-     * mensuales que se renuevan al empezar cada ciclo de facturación.
-     */
+    /** Opciones según la cuota de cada IA (reglas en `LimitOptions`); los diálogos son Compose (`ui/limits`). */
     private fun showLimitDialog(acc: Account) {
-        val hour = 60 * 60 * 1000L
-        val replit = store.service == Service.REPLIT
-        val items = if (replit) {
-            arrayOf(
-                "Dentro de 5 horas (Modo gratis)",
-                "Dentro de 24 horas (créditos diarios)",
-                "Dentro de 7 días (tope semanal)",
-                "En la renovación mensual…",
-                "A una hora exacta…"
-            )
-        } else {
-            arrayOf("Dentro de 5 horas", "Dentro de 24 horas", "Dentro de 7 días", "A una hora exacta…")
+        ensureLimitHost()
+        limitVm.openOptions(acc.id, AiService.fromKey(store.service.key))
+    }
+
+    /** Agrega (una sola vez) la vista que aloja los diálogos de límites en Compose. */
+    private fun ensureLimitHost() {
+        if (limitHost != null) return
+        limitHost = createLimitHost(this, limitVm, limitActions).also {
+            addContentView(it, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        MaterialAlertDialogBuilder(this)
-            .setTitle("¿Cuándo se reinicia el límite?")
-            .setItems(items) { _, which ->
-                val now = System.currentTimeMillis()
-                when (which) {
-                    0 -> setLimit(acc, now + 5 * hour)
-                    1 -> setLimit(acc, now + 24 * hour)
-                    2 -> setLimit(acc, now + 7 * 24 * hour)
-                    3 -> if (replit) pickRenewalDate(acc) else pickExactTime(acc)
-                    4 -> pickExactTime(acc)
-                }
-            }
-            .show()
+    }
+
+    private val limitActions = object : LimitActions {
+        override fun apply(accountId: String, untilMs: Long) {
+            accounts.firstOrNull { it.id == accountId }?.let { setLimit(it, untilMs) }
+        }
+        override fun pickRenewalDate(accountId: String) {
+            accounts.firstOrNull { it.id == accountId }?.let { this@MainActivity.pickRenewalDate(it) }
+        }
+        override fun message(text: String) = snack(text)
+        override fun surface(): Int = store.surface
+        override fun onSurface(): Int = store.onSurface
+        override fun accent(): Int = this@MainActivity.accent()
     }
 
     /** Replit: día en que se renuevan los créditos del mes (empieza el ciclo de facturación, 00:00). */
@@ -2980,139 +2930,6 @@ class MainActivity : AppCompatActivity() {
             setLimit(acc, target.timeInMillis)
         }
         picker.show(supportFragmentManager, "limit_date")
-    }
-
-    /**
-     * Hora exacta: horas y minutos arrancan en cero (se seleccionan al tocar, así se escribe sin borrar).
-     * «Auto» elige solo AM o PM: lo próximo que viene (si son las 16:30 y escribís 5, es 17:00 de hoy).
-     */
-    private fun pickExactTime(acc: Account) {
-        fun field(initial: String, hint: String): TextInputEditText {
-            val e = TextInputEditText(this)
-            e.setText(initial)
-            e.hint = hint
-            e.inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            e.filters = arrayOf(android.text.InputFilter.LengthFilter(2))
-            e.gravity = Gravity.CENTER
-            e.textSize = 26f
-            e.setSelectAllOnFocus(true)
-            return e
-        }
-        val hour = field("0", "Hora")
-        val min = field("00", "Min")
-        val modes = arrayOf("Auto", "AM", "PM")
-        var mode = 0
-        val preview = TextView(this)
-        preview.textSize = 14f
-        preview.setTextColor(ColorUtils.setAlphaComponent(store.onSurface, 170))
-        preview.gravity = Gravity.CENTER
-
-        fun target(): Calendar? {
-            val h = hour.text?.toString().orEmpty().ifEmpty { "0" }.toIntOrNull() ?: return null
-            val m = min.text?.toString().orEmpty().ifEmpty { "0" }.toIntOrNull() ?: return null
-            if (h !in 0..23 || m !in 0..59) return null
-            val now = System.currentTimeMillis()
-            fun at(hh: Int, addDays: Int) = Calendar.getInstance().apply {
-                set(Calendar.HOUR_OF_DAY, hh)
-                set(Calendar.MINUTE, m)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-                add(Calendar.DAY_OF_YEAR, addDays)
-            }
-            fun nextOf(hh: Int): Calendar = if (at(hh, 0).timeInMillis > now) at(hh, 0) else at(hh, 1)
-            if (h == 0 || h > 12) return nextOf(h) // 24 h tal cual
-            val am = h % 12
-            val pm = am + 12
-            return when (mode) {
-                1 -> nextOf(am)
-                2 -> nextOf(pm)
-                else -> listOf(nextOf(am), nextOf(pm)).minByOrNull { it.timeInMillis }
-            }
-        }
-
-        fun refresh() {
-            val t = target()
-            preview.text = if (t == null) "Hora no válida" else {
-                val same = DateFormat.format("yyyyMMdd", t).toString() == DateFormat.format("yyyyMMdd", System.currentTimeMillis()).toString()
-                "Se reinicia " + (if (same) "hoy" else "mañana") + " a las " + DateFormat.format("HH:mm", t)
-            }
-        }
-        val watcher = object : android.text.TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
-            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
-            override fun afterTextChanged(s: android.text.Editable?) = refresh()
-        }
-        hour.addTextChangedListener(watcher)
-        min.addTextChangedListener(watcher)
-        // Con dos cifras en la hora se pasa solo a los minutos.
-        hour.addTextChangedListener(object : android.text.TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
-            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
-            override fun afterTextChanged(s: android.text.Editable?) {
-                if (s?.length == 2 && hour.hasFocus()) min.requestFocus()
-            }
-        })
-
-        val row = LinearLayout(this)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.gravity = Gravity.CENTER_VERTICAL
-        row.addView(hour, LinearLayout.LayoutParams(dp(80), ViewGroup.LayoutParams.WRAP_CONTENT))
-        val colon = TextView(this)
-        colon.text = ":"
-        colon.textSize = 26f
-        colon.setTextColor(store.onSurface)
-        row.addView(colon, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            marginStart = dp(6)
-            marginEnd = dp(6)
-        })
-        row.addView(min, LinearLayout.LayoutParams(dp(80), ViewGroup.LayoutParams.WRAP_CONTENT))
-        val ap = TextView(this)
-        ap.text = modes[0]
-        ap.textSize = 16f
-        ap.setTextColor(accent())
-        ap.gravity = Gravity.CENTER
-        ap.setPadding(dp(16), dp(10), dp(16), dp(10))
-        ap.background = GradientDrawable().apply {
-            cornerRadius = dp(18).toFloat()
-            setStroke(dp(1), accent())
-        }
-        ap.setOnClickListener {
-            mode = (mode + 1) % modes.size
-            ap.text = modes[mode]
-            refresh()
-        }
-        row.addView(ap, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            marginStart = dp(16)
-        })
-
-        val col = LinearLayout(this)
-        col.orientation = LinearLayout.VERTICAL
-        col.gravity = Gravity.CENTER_HORIZONTAL
-        col.setPadding(dp(20), dp(12), dp(20), 0)
-        col.addView(row)
-        col.addView(preview, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(12)
-        })
-        refresh()
-
-        val dlg = MaterialAlertDialogBuilder(this)
-            .setTitle("Hora en que se reinicia")
-            .setMessage("Tocá «Auto» para elegir AM o PM a mano.")
-            .setView(col)
-            .setPositiveButton("Aceptar") { _, _ ->
-                val t = target()
-                if (t == null) snack("Hora no válida") else setLimit(acc, t.timeInMillis)
-            }
-            .setNegativeButton("Cancelar", null)
-            .show()
-        // El teclado no se abre solo con el foco: se pide explícitamente cuando el diálogo ya se mostró.
-        dlg.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
-        hour.postDelayed({
-            hour.requestFocus()
-            hour.selectAll()
-            (getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
-                .showSoftInput(hour, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-        }, 250)
     }
 
     private fun setLimit(acc: Account, until: Long) {
