@@ -1,6 +1,10 @@
 package app.claudeck
 
 import android.annotation.SuppressLint
+import app.claudeck.domain.usecase.BrowserBack
+import app.claudeck.domain.usecase.BrowserInput
+import app.claudeck.domain.usecase.BrowserRules
+import app.claudeck.domain.usecase.LinkAction
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.drawable.GradientDrawable
@@ -100,7 +104,7 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
             builtInZoomControls = true
             displayZoomControls = false
             // Sin «; wv» para que sitios como GitHub no lo traten como un navegador incrustado.
-            userAgentString = userAgentString.replace("; wv", "")
+            userAgentString = BrowserRules.cleanUserAgent(userAgentString)
         }
         try {
             if (host.multiProfile()) {
@@ -113,15 +117,17 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
         wv.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val uri = request?.url ?: return false
-                val scheme = uri.scheme?.lowercase() ?: return false
-                if (scheme == "http" || scheme == "https") return false
-                if (scheme == "mailto" || scheme == "tel") {
-                    try {
-                        act.startActivity(Intent(Intent.ACTION_VIEW, uri))
-                    } catch (_: Exception) {
+                return when (BrowserRules.linkAction(uri.scheme)) {
+                    LinkAction.LOAD_HERE -> false
+                    LinkAction.OPEN_EXTERNAL -> {
+                        try {
+                            act.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                        } catch (_: Exception) {
+                        }
+                        true
                     }
+                    LinkAction.BLOCK -> true // intent:, market:, etc. no se abren desde acá
                 }
-                return true // el resto (intent:, market:, etc.) no se abre desde acá
             }
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -285,15 +291,15 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
 
     /** Guarda la última página para retomarla la próxima vez (solo http y https). */
     private fun remember(url: String?) {
-        if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) host.saveLastUrl(url)
+        if (url != null && BrowserRules.isRememberable(url)) host.saveLastUrl(url)
     }
 
     /** Habilita/deshabilita atrás y adelante y cambia el ícono de recargar por «detener» mientras carga. */
     private fun syncUi() {
-        backBtn.alpha = if (webView.canGoBack()) 1f else 0.3f
-        fwdBtn.alpha = if (webView.canGoForward()) 1f else 0.3f
+        backBtn.alpha = BrowserRules.buttonAlpha(webView.canGoBack())
+        fwdBtn.alpha = BrowserRules.buttonAlpha(webView.canGoForward())
         reloadBtn.setImageResource(if (loading) R.drawable.ic_close else R.drawable.ic_reload)
-        reloadBtn.contentDescription = if (loading) "Detener" else "Recargar"
+        reloadBtn.contentDescription = BrowserRules.reloadDescription(loading)
     }
 
     // ---------------------------------------------------------------- Navegación
@@ -302,23 +308,23 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
     fun open() {
         if (!started) {
             started = true
-            go(host.lastUrl() ?: QUICK[0].second)
+            go(BrowserRules.startUrl(host.lastUrl()))
         }
         syncUi()
     }
 
     /** Atrás del navegador; devuelve false si no hay a dónde volver (entonces se cierra el cajón). */
-    fun onBack(): Boolean {
-        if (urlField.hasFocus()) {
+    fun onBack(): Boolean = when (BrowserRules.back(urlField.hasFocus(), webView.canGoBack())) {
+        BrowserBack.LEAVE_FIELD -> {
             urlField.clearFocus()
             hideKeyboard()
-            return true
+            true
         }
-        if (webView.canGoBack()) {
+        BrowserBack.GO_BACK -> {
             webView.goBack()
-            return true
+            true
         }
-        return false
+        BrowserBack.CLOSE -> false
     }
 
     private fun hideKeyboard() {
@@ -328,16 +334,13 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
 
     /** Dirección → https; texto suelto → búsqueda en DuckDuckGo. Solo http y https. */
     private fun go(raw: String) {
-        val t = raw.trim()
-        if (t.isEmpty()) return
-        val url = when {
-            t.startsWith("http://", true) || t.startsWith("https://", true) -> t
-            t.contains("://") -> {
-                host.message("Solo se pueden abrir direcciones http y https")
+        val url = when (val input = BrowserRules.resolve(raw) { Uri.encode(it) }) {
+            is BrowserInput.Ignore -> return
+            is BrowserInput.Reject -> {
+                host.message(input.message)
                 return
             }
-            !t.contains(' ') && t.contains('.') -> "https://$t"
-            else -> "https://duckduckgo.com/?q=" + Uri.encode(t)
+            is BrowserInput.Load -> input.url
         }
         urlField.clearFocus()
         hideKeyboard()
@@ -355,12 +358,7 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
     }
 
     companion object {
-        const val PROFILE = "browser"
-        val QUICK = listOf(
-            "GitHub" to "https://github.com/",
-            "Google" to "https://www.google.com/",
-            "DuckDuckGo" to "https://duckduckgo.com/",
-            "Stack Overflow" to "https://stackoverflow.com/"
-        )
+        const val PROFILE = BrowserRules.PROFILE
+        val QUICK = BrowserRules.QUICK_LINKS
     }
 }

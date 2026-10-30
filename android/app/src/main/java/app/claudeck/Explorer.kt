@@ -1,5 +1,10 @@
 package app.claudeck
 
+import app.claudeck.domain.usecase.BackAction
+import app.claudeck.domain.usecase.BarAction
+import app.claudeck.domain.usecase.ExplorerRules
+import app.claudeck.domain.usecase.ItemAction
+import app.claudeck.domain.usecase.PickFilter
 import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
@@ -310,18 +315,7 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
 
     private fun acceptable(e: FileEntry): Boolean {
         val acc = pick?.accept ?: return true
-        if (e.isDir || acc.isEmpty()) return true
-        val ext = e.file.extension.lowercase()
-        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: ""
-        return acc.any { t0 ->
-            val t = t0.trim().lowercase()
-            when {
-                t == "*/*" || t == "*" -> true
-                t.startsWith(".") -> ext == t.removePrefix(".")
-                t.endsWith("/*") -> mime.startsWith(t.removeSuffix("*"))
-                else -> mime == t
-            }
-        }
+        return PickFilter.accepts(acc, e.file.name, e.isDir) { ext -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "" }
     }
 
     fun refresh() {
@@ -366,79 +360,76 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
     }
 
     /** Atrás: sale de la selección o sube una carpeta. Devuelve false si no hay nada más que hacer (cerrar). */
-    fun onBack(): Boolean {
-        if (selected.isNotEmpty()) {
+    fun onBack(): Boolean = when (ExplorerRules.back(selected.isNotEmpty(), atRoot(), hasAccess())) {
+        BackAction.CLEAR_SELECTION -> {
             selected.clear()
             adapter.notifyDataSetChanged()
             renderBar()
-            return true
+            true
         }
-        if (!atRoot() && hasAccess()) {
+        BackAction.GO_UP -> {
             goUp()
-            return true
+            true
         }
-        return false
+        BackAction.CLOSE -> false
     }
 
     private fun renderHeader() {
         val root = atRoot()
-        titleView.text = if (pick != null) "Subir archivos · " + (if (root) "Almacenamiento" else dir.name) else if (root) "Almacenamiento" else dir.name
-        val rel = dir.path.removePrefix(storageRoot.path).ifEmpty { "/" }
-        pathView.text = rel
+        titleView.text = ExplorerRules.title(pick != null, root, dir.name)
+        pathView.text = ExplorerRules.relativePath(dir.path, storageRoot.path)
         upButton.visibility = if (root) View.INVISIBLE else View.VISIBLE
     }
 
     private fun renderBar() {
         bar.removeAllViews()
-        if (!hasAccess()) return
-        if (pick != null) {
-            if (selected.isNotEmpty()) addChip(chip("Subir (${selected.size})", R.drawable.ic_upload) { finishPick() })
-            addChip(chip("Descargas", R.drawable.ic_folder) { if (downloads.exists()) navigate(downloads) })
-            addChip(chip("Almacenamiento", R.drawable.ic_folder) { navigate(storageRoot) })
-            addChip(chip("Selector del sistema", R.drawable.ic_file) { host.systemPicker() })
-            addChip(chip("Cancelar", R.drawable.ic_close) { host.close() })
-            return
-        }
-        if (selected.isNotEmpty()) {
-            val one = selected.size == 1
-            val only = selected.firstOrNull()
+        val only = selected.singleOrNull()
+        val actions = ExplorerRules.barActions(
+            hasAccess(), pick != null, selected.size,
+            only != null && only.isFile && only.name.lowercase().endsWith(".zip"), clip.size
+        )
+        if (actions.isEmpty()) return
+        if (pick == null && selected.isNotEmpty()) {
             val count = TextView(act)
-            count.text = if (one) "1 elemento" else "${selected.size} elementos"
+            count.text = ExplorerRules.selectionCount(selected.size)
             count.textSize = 13f
             count.setTextColor(muted)
             count.gravity = Gravity.CENTER_VERTICAL
             count.setPadding(dp(4), 0, dp(12), 0)
             bar.addView(count, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
-            addChip(chip("Copiar", R.drawable.ic_copy) { setClip(false) })
-            addChip(chip("Mover", R.drawable.ic_move) { setClip(true) })
-            if (one) addChip(chip("Renombrar", R.drawable.ic_edit) { only?.let { renameDialog(it) } })
-            if (one && only != null && only.isFile && only.name.lowercase().endsWith(".zip")) {
-                addChip(chip("Extraer", R.drawable.ic_zip) { zipOptions(only) })
+        }
+        for (a in actions) {
+            val label = ExplorerRules.barLabel(a, selected.size, clip.size, sort.label)
+            when (a) {
+                BarAction.PICK_UPLOAD -> addChip(chip(label, R.drawable.ic_upload) { finishPick() })
+                BarAction.DOWNLOADS -> addChip(chip(label, R.drawable.ic_folder) { if (downloads.exists()) navigate(downloads) })
+                BarAction.STORAGE -> addChip(chip(label, R.drawable.ic_folder) { navigate(storageRoot) })
+                BarAction.SYSTEM_PICKER -> addChip(chip(label, R.drawable.ic_file) { host.systemPicker() })
+                BarAction.CANCEL -> addChip(chip(label, R.drawable.ic_close) { host.close() })
+                BarAction.COPY -> addChip(chip(label, R.drawable.ic_copy) { setClip(false) })
+                BarAction.MOVE -> addChip(chip(label, R.drawable.ic_move) { setClip(true) })
+                BarAction.RENAME -> addChip(chip(label, R.drawable.ic_edit) { only?.let { renameDialog(it) } })
+                BarAction.EXTRACT -> addChip(chip(label, R.drawable.ic_zip) { only?.let { zipOptions(it) } })
+                BarAction.DELETE -> addChip(chip(label, R.drawable.ic_trash) { deleteDialog(selected.toList()) })
+                BarAction.SELECT_ALL -> addChip(chip(label, R.drawable.ic_select_all) {
+                    selected.clear()
+                    selected.addAll(entries.map { it.file })
+                    adapter.notifyDataSetChanged()
+                    renderBar()
+                })
+                BarAction.CANCEL_SELECTION -> addChip(chip(label, R.drawable.ic_close) { onBack() })
+                BarAction.PASTE -> addChip(chip(label, R.drawable.ic_paste) { paste() })
+                BarAction.DISCARD_CLIP -> addChip(chip(label, R.drawable.ic_close) {
+                    clip = emptyList()
+                    renderBar()
+                })
+                BarAction.NEW_FOLDER -> addChip(chip(label, R.drawable.ic_folder_plus) { newFolderDialog() })
+                BarAction.SORT -> addChip(chip(label, R.drawable.ic_sort) {
+                    sort = sort.next()
+                    refresh()
+                })
             }
-            addChip(chip("Borrar", R.drawable.ic_trash) { deleteDialog(selected.toList()) })
-            addChip(chip("Todo", R.drawable.ic_select_all) {
-                selected.clear()
-                selected.addAll(entries.map { it.file })
-                adapter.notifyDataSetChanged()
-                renderBar()
-            })
-            addChip(chip("Cancelar", R.drawable.ic_close) { onBack() })
-            return
         }
-        if (clip.isNotEmpty()) {
-            addChip(chip("Pegar aquí (${clip.size})", R.drawable.ic_paste) { paste() })
-            addChip(chip("Descartar", R.drawable.ic_close) {
-                clip = emptyList()
-                renderBar()
-            })
-        }
-        addChip(chip("Descargas", R.drawable.ic_folder) { if (downloads.exists()) navigate(downloads) })
-        addChip(chip("Almacenamiento", R.drawable.ic_folder) { navigate(storageRoot) })
-        addChip(chip("Nueva carpeta", R.drawable.ic_folder_plus) { newFolderDialog() })
-        addChip(chip(sort.label, R.drawable.ic_sort) {
-            sort = sort.next()
-            refresh()
-        })
     }
 
     // ---------------------------------------------------------------- Acciones
@@ -449,7 +440,7 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
         selected.clear()
         adapter.notifyDataSetChanged()
         renderBar()
-        host.message((if (cut) "Para mover: " else "Para copiar: ") + clip.size + ". Andá a la carpeta destino y tocá «Pegar aquí»")
+        host.message(ExplorerRules.clipHint(cut, clip.size))
     }
 
     private fun busy(on: Boolean) {
@@ -462,7 +453,7 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
             val text = try {
                 work()
             } catch (e: Exception) {
-                "No se pudo: " + (e.message ?: e.javaClass.simpleName)
+                ExplorerRules.failure(e.message, e.javaClass.simpleName)
             }
             act.runOnUiThread {
                 busy(false)
@@ -484,22 +475,21 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
                 if (cut) FileOps.move(f, target) else FileOps.copy(f, target)
                 n++
             }
-            (if (cut) "Movidos: " else "Copiados: ") + n
+            ExplorerRules.pasteResult(cut, n)
         }
     }
 
     private fun deleteDialog(files: List<File>) {
-        val what = if (files.size == 1) "«${files[0].name}»" else "${files.size} elementos"
         MaterialAlertDialogBuilder(act)
             .setTitle("Borrar")
-            .setMessage("Se borra $what para siempre. No se puede deshacer.")
+            .setMessage(ExplorerRules.deleteQuestion(files.size, files[0].name))
             .setPositiveButton("Borrar") { _, _ ->
                 runAsync {
                     var n = 0
                     for (f in files) {
                         if (f.deleteRecursively()) n++
                     }
-                    if (n == files.size) "Borrados: $n" else "Se borraron $n de ${files.size}"
+                    ExplorerRules.deleteResult(n, files.size)
                 }
             }
             .setNegativeButton("Cancelar", null)
@@ -529,7 +519,7 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
         textDialog("Renombrar", f.name, "Renombrar") { name ->
             runAsync {
                 val n = FileOps.rename(f, name)
-                "Ahora se llama «${n.name}»"
+                ExplorerRules.renamed(n.name)
             }
         }
     }
@@ -539,13 +529,13 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
             val parent = dir
             runAsync {
                 val n = FileOps.mkdir(parent, name)
-                "Carpeta «${n.name}» creada"
+                ExplorerRules.folderCreated(n.name)
             }
         }
     }
 
     private fun zipOptions(zip: File) {
-        val base = zip.name.removeSuffix(".zip").removeSuffix(".ZIP")
+        val base = ExplorerRules.zipFolderName(zip.name)
         MaterialAlertDialogBuilder(act)
             .setTitle(zip.name)
             .setItems(arrayOf("Extraer en una carpeta «$base»", "Extraer aquí", "Abrir con otra app")) { _, which ->
@@ -561,7 +551,7 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
     private fun extract(zip: File, dest: File) {
         runAsync {
             val n = FileOps.unzip(zip, dest)
-            "Extraídos $n archivos en «${dest.name}»"
+            ExplorerRules.extracted(n, dest.name)
         }
     }
 
@@ -678,18 +668,11 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
     }
 
     private fun onItemClick(e: FileEntry) {
-        if (pick != null) {
-            if (e.isDir) navigate(e.file) else toggle(e.file)
-            return
-        }
-        if (selected.isNotEmpty()) {
-            toggle(e.file)
-            return
-        }
-        when {
-            e.isDir -> navigate(e.file)
-            e.isZip -> zipOptions(e.file)
-            else -> openFile(e.file)
+        when (ExplorerRules.itemAction(pick != null, selected.isNotEmpty(), e.isDir, e.isZip)) {
+            ItemAction.OPEN_FOLDER -> navigate(e.file)
+            ItemAction.TOGGLE_SELECTION -> toggle(e.file)
+            ItemAction.ZIP_OPTIONS -> zipOptions(e.file)
+            ItemAction.OPEN_FILE -> openFile(e.file)
         }
     }
 

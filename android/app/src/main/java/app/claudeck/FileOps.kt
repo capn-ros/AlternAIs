@@ -1,5 +1,8 @@
 package app.claudeck
 
+import app.claudeck.domain.usecase.FileNames
+import app.claudeck.domain.usecase.FileType
+import app.claudeck.domain.usecase.SizeFormat
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
@@ -37,22 +40,7 @@ enum class FileKind(val color: Int) {
     OTHER(0xFF8A8F98.toInt());
 
     companion object {
-        fun of(name: String, isDir: Boolean): FileKind {
-            if (isDir) return FOLDER
-            return when (name.substringAfterLast('.', "").lowercase(Locale.ROOT)) {
-                "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz" -> ARCHIVE
-                "png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "svg" -> IMAGE
-                "mp4", "mkv", "webm", "avi", "mov", "3gp" -> VIDEO
-                "mp3", "wav", "ogg", "flac", "m4a", "aac", "opus" -> AUDIO
-                "pdf" -> PDF
-                "doc", "docx", "odt", "rtf", "ppt", "pptx", "odp" -> DOC
-                "xls", "xlsx", "ods", "csv" -> SHEET
-                "js", "ts", "kt", "java", "py", "html", "htm", "css", "json", "xml", "sh", "bat", "c", "cpp", "h", "go", "rs", "yml", "yaml", "gradle", "sql" -> CODE
-                "apk", "apks", "xapk" -> APK
-                "txt", "md", "log", "ini", "cfg" -> TEXT
-                else -> OTHER
-            }
-        }
+        fun of(name: String, isDir: Boolean): FileKind = valueOf(FileType.of(name, isDir).name)
     }
 }
 
@@ -62,7 +50,7 @@ object FileOps {
     fun list(dir: File, sort: SortMode): List<FileEntry>? {
         val files = dir.listFiles() ?: return null
         val entries = files
-            .filter { !it.name.startsWith(".") }
+            .filter { !FileNames.isHidden(it.name) }
             .map { FileEntry(it, it.isDirectory, if (it.isDirectory) 0L else it.length(), it.lastModified()) }
         val byKind = compareByDescending<FileEntry> { it.isDir }
         val cmp: Comparator<FileEntry> = when (sort) {
@@ -74,19 +62,7 @@ object FileOps {
     }
 
     /** Un nombre libre dentro de `dir`: «nombre (2).ext» si ya existe. */
-    fun uniqueFile(dir: File, name: String): File {
-        var f = File(dir, name)
-        if (!f.exists()) return f
-        val dot = name.lastIndexOf('.')
-        val base = if (dot > 0) name.substring(0, dot) else name
-        val ext = if (dot > 0) name.substring(dot) else ""
-        var i = 2
-        while (true) {
-            f = File(dir, "$base ($i)$ext")
-            if (!f.exists()) return f
-            i++
-        }
-    }
+    fun uniqueFile(dir: File, name: String): File = File(dir, FileNames.unique(name) { File(dir, it).exists() })
 
     private fun canon(f: File): String = try {
         f.canonicalPath
@@ -130,10 +106,7 @@ object FileOps {
     }
 
     fun rename(f: File, newName: String): File {
-        val n = newName.trim()
-        if (n.isEmpty() || n == "." || n == ".." || n.contains('/') || n.contains('\u0000')) {
-            throw IllegalArgumentException("Nombre no válido")
-        }
+        val n = FileNames.forRename(newName) ?: throw IllegalArgumentException("Nombre no válido")
         val target = File(f.parentFile, n)
         if (target.exists()) throw IllegalArgumentException("Ya existe «$n»")
         if (!f.renameTo(target)) throw IllegalStateException("No se pudo renombrar")
@@ -141,8 +114,7 @@ object FileOps {
     }
 
     fun mkdir(parent: File, name: String): File {
-        val n = name.trim()
-        if (n.isEmpty() || n == "." || n == ".." || n.contains('/')) throw IllegalArgumentException("Nombre no válido")
+        val n = FileNames.forFolder(name) ?: throw IllegalArgumentException("Nombre no válido")
         val target = File(parent, n)
         if (target.exists()) throw IllegalArgumentException("Ya existe «$n»")
         if (!target.mkdirs()) throw IllegalStateException("No se pudo crear la carpeta")
@@ -176,15 +148,5 @@ object FileOps {
         return count
     }
 
-    fun humanSize(bytes: Long): String {
-        if (bytes < 1024) return "$bytes B"
-        val units = arrayOf("KB", "MB", "GB", "TB")
-        var v = bytes.toDouble()
-        var i = -1
-        do {
-            v /= 1024.0
-            i++
-        } while (v >= 1024.0 && i < units.size - 1)
-        return String.format(Locale.getDefault(), if (v >= 10) "%.0f %s" else "%.1f %s", v, units[i])
-    }
+    fun humanSize(bytes: Long): String = SizeFormat.human(bytes)
 }

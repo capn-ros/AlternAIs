@@ -299,3 +299,44 @@ Objetivo del dueño: reescribir con Clean Architecture, tests unitarios, código
 **Reglas que no se pueden romper:** no cambiar ids de cuentas existentes ni las claves de `SharedPreferences`; no regenerar `android/app/debug.keystore` (se pierden las sesiones); mantener `applicationId app.claudeck`; interfaz en español rioplatense (voseo); no guardar contraseñas; mantener la nota de uso responsable del README; actualizar este archivo y regenerar `cd.zip` (receta en §9) al terminar cada etapa.
 
 **Si el dueño pega un error de compilación:** corregir solo lo que falla, con el mínimo cambio, y avisar qué se tocó.
+
+## 2l. Estado de verificación (actualizado)
+- Android: 193 tests, 0 fallas (verificado por reporte del usuario) = incluye 2i–2k. Falta confirmar en el teléfono lo visual (círculos, barra de tiempo, botón +, gestos) y el paso "Compilar APK".
+## 4a. Windows nativo (WinUI 3 + C# .NET 9) — dominio
+- Carpeta `windows-native/` (Domain + tests xUnit, ~114 [Fact]). NO la compilan los workflows actuales; usar `docs/windows-native-tests.yml` (pegar a mano en .github/workflows).
+- SIN VERIFICAR: se escribió sin dotnet disponible. Pendiente: resultado del primer `dotnet test`.
+- Próximo: 4b Application/Infrastructure, 4c App WinUI 3, 4d workflows e instalador.
+## 3a. Servicios en segundo plano: reglas al dominio (HECHO, pendiente de verificar en GitHub)
+- Nuevo `domain/usecase/BackgroundReply.kt`: `AlarmPlan` (qué alarmas programar), `AlarmDispatch` (avisar / enviar con la app abierta / enviar en segundo plano), `ReplyText` (texto de la respuesta desde la notificación), `LimitNotificationText` (todos los textos de las notificaciones y los 2 botones de mensajes guardados) y `AutoSendPolicy` (reintentos y tiempos: 3 s, cada 2 s hasta 22 veces, 3,5 s de espera, tope 80 s).
+- `Alarms.kt` y `AutoReplyService.kt` los usan; mismos textos y tiempos que antes. Siguen siendo código Android: AlarmManager, PendingIntent, WebView invisible, wakelock.
+- Tests nuevos: `BackgroundReplyTest` (10): el reporte debería mostrar **203 tests**.
+- Pendiente de la etapa 3: `BubbleService` (567 líneas), explorador (`Explorer.kt`, `FileOps.kt`) y navegador (`Browser.kt`).
+## 3b. Burbuja flotante: geometría y textos al dominio (HECHO, pendiente de verificar en GitHub y en el teléfono)
+- Nuevo `domain/usecase/BubbleLogic.kt`: `BubbleLayout` (posición inicial/guardada, límites de pantalla, umbral de arrastre, pegado al borde, lado y sentido de despliegue, ventana abierta, orden de filas y de la cascada), `BubbleStatus` (insignia verde/roja con la cantidad de cuentas libres, textos «Nombre · Disponible» / «⏳ 2 h 10 min», color naranja/blanco, cuenta actual).
+- `BubbleService` los usa; mismos números y colores. Siguen en la clase: WindowManager, vistas, animaciones y servicio en primer plano.
+- Tests nuevos: `BubbleLogicTest` (12): el reporte debería mostrar **215 tests** (203 + 12).
+- Pendiente de la etapa 3: explorador (`Explorer.kt` 830 líneas, `FileOps.kt`) y navegador (`Browser.kt`).
+## 3c. Explorador: reglas de archivos al dominio y tests de FileOps (HECHO, pendiente de verificar en GitHub)
+- Nuevo `domain/usecase/FileRules.kt`: `FileType` (tipo por extensión), `FileNames` (nombres válidos para renombrar/crear carpeta, «nombre (2).ext», ocultos con punto) y `SizeFormat` (tamaños legibles). `FileOps.kt` los usa; `FileKind` (con colores) ahora se arma desde `FileType`. Mismos mensajes de error y mismo comportamiento.
+- `FileOpsTest` prueba `FileOps` con carpetas temporales reales (orden, copiar, mover, renombrar, crear carpeta, descomprimir y rechazo de rutas «../» del zip) sin necesitar Android.
+- Tests nuevos: `FileRulesTest` (10) + `FileOpsTest` (17): el reporte debería mostrar **242 tests** (215 + 27).
+- `Explorer.kt` (pantalla de 830 líneas, vistas de Android) sigue sin tocar: pasarlo a Compose con ViewModel es lo próximo, junto con `Browser.kt`.
+## 3d. Explorador: decisiones de la pantalla al dominio (HECHO, pendiente de verificar en GitHub y en el teléfono)
+- Nuevo `domain/usecase/ExplorerRules.kt`: `PickFilter` (qué archivos se pueden elegir según lo que pidió la página: «image/*», «.pdf», tipos exactos, comodín), `ExplorerRules` (qué hace tocar un elemento, qué hace «Atrás», qué botones tiene la barra en cada modo —normal, portapapeles, selección, subir archivos—, sus textos, título, ruta y todos los mensajes). `Explorer.kt` (sigue siendo vistas de Android) los usa: `renderBar()` ahora es un `when` sobre `BarAction`.
+- Mismo comportamiento y mismos textos. A controlar en el teléfono: los botones de la barra en cada modo y el contador «N elementos» en la selección.
+- Tests nuevos: `ExplorerRulesTest` (14): el reporte debería mostrar **256 tests** (242 + 14).
+- Pendiente de la etapa 3: `Browser.kt` (366 líneas) y, si el dueño puede probar en el teléfono, pasar `Explorer.kt` a Compose.
+## 3e. Navegador interno: reglas al dominio (HECHO, pendiente de verificar en GitHub) — cierra la etapa 3
+- Nuevo `domain/usecase/BrowserRules.kt`: `resolve` (lo escrito en la barra → cargar / rechazar con aviso / ignorar; dominio suelto → https; texto → DuckDuckGo), `linkAction` (http/https se cargan acá, mailto/tel van al sistema, el resto se bloquea), `isRememberable`, `startUrl`, `cleanUserAgent`, `back`, textos y accesos rápidos. `Browser.kt` los usa (la codificación de la búsqueda sigue siendo `Uri.encode`, pasada como función).
+- Tests nuevos: `BrowserRulesTest` (11): el reporte debería mostrar **267 tests** (256 + 11).
+- **Etapa 3 completa** a nivel de reglas: alarmas/respuesta automática (3a), burbuja (3b), archivos (3c), explorador (3d) y navegador (3e). Las pantallas del explorador y del navegador, la burbuja y los servicios siguen siendo vistas/servicios de Android con sus reglas ya en el dominio y testeadas.
+- Sin verificar: 3a–3e en GitHub (esperado 267 tests) y todo en el teléfono.
+- Próximo: borrar el código muerto de la etapa 2 (cuando se confirme en el teléfono), reemplazar `Account.kt` viejo por el dominio, y la etapa 4 (Windows: compilar 4a y seguir con Application/Infrastructure/App).
+## 4b. Windows nativo: capas Application e Infrastructure (HECHO, SIN COMPILAR: no hay dotnet en el entorno)
+- `windows-native/src/AlternAIs.Application`: `AppState`/`ServiceBucket`/`AppSettings`/`BrowserSettings`, `IStateStore` y `AccountsService` (agregar, editar, quitar, elegir, `Step`, marcar/quitar límite, vencer límites, mensaje automático, recordar URL, importar con `PlanImport`, temas, tutorial, mensajes guardados, ajustes; cada operación guarda y dispara `Changed`; máx. 50 cuentas por servicio).
+- `windows-native/src/AlternAIs.Infrastructure`: `StateJson` (lee/escribe el MISMO `accounts.json` de la versión Electron, con la misma limpieza: ids `^[a-f0-9]{6,32}$`, nombre máx. 24 o «Cuenta», color `#RRGGBB` o `#E07A5F`, URL solo del servicio, etc.), `ExportJson` (mismo formato `{app, version:1, exportedAt, services}` que Android; sin ids ni mensaje automático), `JsonFileStateStore` (`%APPDATA%\Claudeck\accounts.json`, escritura atómica con `.tmp`).
+- Tests: `tests/AlternAIs.Application.Tests` (40 [Fact]/[Theory]; algunos usan rutas `C:\...`, así que corren en Windows). `docs/windows-native-tests.yml` ahora corre los dos proyectos de tests.
+- Total xUnit esperado: ~114 (dominio) + 40 (4b) ≈ 154. SIN VERIFICAR: pedir al dueño el resultado de `dotnet test`.
+- **Revisión estática de 4a+4b (2026-10-30, sin compilador):** se leyeron los 25 `.cs` (código y tests) buscando errores de compilación y de lógica; no apareció ninguno de compilación. Se corrigió un bug: las regex de `StateJson` (id y color) usaban `$`, que en .NET acepta un `\n` final (el id acaba en `acc_<id>`, el nombre de la partición); ahora `\z`, con 2 tests nuevos (total 4b ≈ 42). **Sigue SIN COMPILAR de verdad:** `windows-native/` nunca pasó por `dotnet build`; hay que pegar `docs/windows-native-tests.yml` en `.github/workflows/`, lanzarlo con «Run workflow» (el push de cd.yml no lo dispara) y pasar el resultado antes de empezar 4c.
+- **Aviso para 4c:** el namespace `AlternAIs.Application` choca con `Microsoft.UI.Xaml.Application` desde cualquier código dentro de `AlternAIs.*` (CS0118). En `App.xaml.cs` escribir `Microsoft.UI.Xaml.Application` completo.
+- Próximo: 4c `AlternAIs.App` (WinUI 3 + WebView2, una partición por cuenta), 4d workflows e instalador; después retirar Electron.
