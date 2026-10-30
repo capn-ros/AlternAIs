@@ -6,6 +6,8 @@ import app.claudeck.domain.model.AccountPalette
 import app.claudeck.domain.policy.EmailPolicy
 import app.claudeck.domain.usecase.AccountFormResult
 import app.claudeck.domain.usecase.AccountMenuAction
+import app.claudeck.domain.usecase.AccountNavigation
+import app.claudeck.domain.usecase.DockPolicy
 import app.claudeck.domain.usecase.AccountStatusText
 import app.claudeck.domain.usecase.BuildAccountMenu
 import app.claudeck.ui.accountmenu.AccountMenuActions
@@ -1205,10 +1207,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Pasa a la cuenta siguiente (+1) o anterior (-1) de la lista. */
     private fun step(delta: Int) {
-        if (accounts.size < 2) return
-        val idx = accounts.indexOfFirst { it.id == currentId }.coerceAtLeast(0)
-        val next = (idx + delta + accounts.size) % accounts.size
-        select(accounts[next].id)
+        AccountNavigation.step(accounts.map { it.id }, currentId, delta)?.let { select(it) }
     }
 
     private fun setDockCollapsed(collapsed: Boolean, animate: Boolean) {
@@ -1234,7 +1233,7 @@ class MainActivity : AppCompatActivity() {
     /** Reinicia la cuenta regresiva para plegar la barra sola (si está desplegada). */
     private fun scheduleAutoHide() {
         handler.removeCallbacks(autoHide)
-        if (!tutorialActive && !dockCollapsed && !subPanelOpen() && accounts.isNotEmpty()) handler.postDelayed(autoHide, AUTO_HIDE_MS)
+        if (DockPolicy.shouldAutoHide(tutorialActive, dockCollapsed, subPanelOpen(), accounts.size)) handler.postDelayed(autoHide, AUTO_HIDE_MS)
     }
 
     /** Borde superior de la barra con el color de la cuenta activa (separa la barra de la pantalla de Claude). */
@@ -1839,12 +1838,11 @@ class MainActivity : AppCompatActivity() {
         val acc = accounts.firstOrNull { it.id == id } ?: return
         val prev = currentId
         if (prev != null && prev != id) previousId = prev
-        val oldIdx = accounts.indexOfFirst { it.id == prev }
-        val newIdx = accounts.indexOfFirst { it.id == id }
+        val direction = AccountNavigation.direction(accounts.map { it.id }, prev, id)
         currentId = id
         store.selectedId = id
         webViews.getOrPut(id) { createWebView(acc) }
-        transitionTo(id, if (oldIdx < 0) 0 else Integer.signum(newIdx - oldIdx))
+        transitionTo(id, direction)
         progress.setIndicatorColor(chrome(acc))
         progress.visibility = View.INVISIBLE
         updateSelection()
