@@ -48,6 +48,9 @@ android {
         abortOnError = false
         checkReleaseBuilds = false
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -55,4 +58,11 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.webkit:webkit:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    // Tests unitarios (JVM, sin dispositivo): ./gradlew testDebugUnitTest
+    testImplementation("junit:junit:4.13.2")
+    // org.json real: en la JVM el de android.jar solo tiene stubs.
+    testImplementation("org.json:json:20240303")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
 }

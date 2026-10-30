@@ -44,7 +44,7 @@ import kotlin.math.abs
 
 /**
  * Burbuja flotante (overlay "sobre otras apps") para cambiar de cuenta desde cualquier lado.
- * Tocar la burbuja despliega la lista de cuentas; tocar una trae Alterna al frente en esa cuenta.
+ * Tocar la burbuja despliega la lista de cuentas; tocar una trae AlternAIs al frente en esa cuenta.
  * Se arrastra y se pega al borde más cercano. Es un servicio en primer plano para que Android
  * no lo mate. Requiere el permiso "Mostrar sobre otras apps" (SYSTEM_ALERT_WINDOW).
  */
@@ -561,7 +561,7 @@ class BubbleService : Service() {
         try {
             startActivity(i)
         } catch (e: Exception) {
-            Toast.makeText(this, "Abrí Alterna para cambiar de cuenta", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Abrí AlternAIs para cambiar de cuenta", Toast.LENGTH_LONG).show()
         }
     }
 }

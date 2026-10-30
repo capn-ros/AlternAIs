@@ -46,8 +46,8 @@ El APK usa siempre la misma firma (incluida en `android/app/debug.keystore`), as
 ## Limitaciones conocidas
 
 - **"Continuar con Google"** puede no funcionar dentro de un navegador embebido (Google lo bloquea a veces). Si falla, entrá con tu email (te llega un código).
-- El micrófono/cámara de la app web no están soportados en Android por ahora.
-- El aviso de fin de descanso en Android aparece cuando abrís la app; en Windows es una notificación del sistema.
+- En Android el **micrófono** (dictado por voz de las IA) funciona: la primera vez Android pide el permiso. La cámara no está soportada.
+- El aviso de fin de descanso es una notificación del sistema en ambas plataformas (en Windows, con la app abierta o en la bandeja).
 
 ## Uso responsable
 

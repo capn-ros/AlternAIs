@@ -1,0 +1,13 @@
+# Pegar a mano en .github/workflows/cd.yml y android.yml (GitHub no deja que cd.zip modifique los workflows).
+# Va en el job "android", ANTES de "Compilar APK". Si un test falla, el build se corta.
+      - name: Tests unitarios
+        working-directory: android
+        run: gradle testDebugUnitTest --no-daemon
+
+      - name: Subir reporte de tests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tests-Android
+          path: android/app/build/reports/tests/testDebugUnitTest
+          retention-days: 7

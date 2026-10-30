@@ -112,7 +112,7 @@ Antes `setDownloadListener` hacía `ACTION_VIEW` con la URL (el navegador extern
 - **http/https** → `enqueueDownload`: `DownloadManager` con cabeceras `Cookie` (del `cookieManager` del **perfil** de la cuenta) y `User-Agent`, destino `Descargas` público, notificación del sistema. `downloadReceiver` (registrado con `RECEIVER_EXPORTED`, vive con la Activity) muestra Snackbar "Descargado" con acción **Abrir**.
 - **blob:** → `fetchBlob`: ejecuta JS en la página que lee el blob y lo manda por el objeto **`claudeckDl`** (`WebViewCompat.addWebMessageListener`, limitado a los orígenes `claude.ai`/`*.claude.ai`/`claude.com`/`*.claude.com`, requiere feature `WEB_MESSAGE_LISTENER`). `HOOK_JS` (inyectado en `onPageStarted` y `onPageFinished`, idempotente) guarda los blobs creados con `URL.createObjectURL` y demora 60 s el `revokeObjectURL` (la página suele revocarlo enseguida), y recuerda el `download=` del `<a>` clickeado para el nombre del archivo. El mensaje JSON `{name, mime, data(base64)}` llega a `onBridgeMessage` → hilo aparte → `saveToDownloads` (MediaStore.Downloads en 10+, archivo directo en ≤ 9) → Snackbar con **Abrir**.
 - **data:** → `saveDataUrl`.
-- Sigue sin soportarse micrófono/cámara (falta `onPermissionRequest`).
+- Micrófono: soportado (ver sección «Micrófono para las IA»); la cámara sigue sin soportarse.
 
 ### 4.3 Burbuja flotante (`BubbleService`)
 - Overlay `TYPE_APPLICATION_OVERLAY` dentro de un **servicio en primer plano** (`foregroundServiceType="specialUse"`, `START_NOT_STICKY` a propósito: Android 12+ no deja reiniciar FGS desde segundo plano). Permisos del manifest: `SYSTEM_ALERT_WINDOW`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE`, `POST_NOTIFICATIONS`.
@@ -182,8 +182,8 @@ Reglas del `cd.zip` (si lo regenerás):
 ## 7. Limitaciones y deuda conocida (candidatas a trabajar)
 
 1. "Continuar con Google" puede ser bloqueado por Google en navegadores embebidos (ambas plataformas).
-2. Android: micrófono y cámara no soportados (falta `onPermissionRequest` + permisos en el manifest).
-3. Android: el aviso de fin de descanso solo aparece con la app abierta (no hay `WorkManager`/alarma/notificación).
+2. Android: la cámara no está soportada (el micrófono sí, ver «Micrófono para las IA»).
+3. (Resuelto) El aviso de fin de descanso en Android ya usa alarmas exactas + notificación (`Alarms.kt`).
 4. Android: no hay filtro de hosts como en Windows (`TRUSTED_HOST`); links externos se abren dentro del WebView.
 5. Android: `onPause` pausa todos los WebViews (las cuentas en segundo plano no siguen cargando/streameando).
 6. Android: textos hardcodeados fuera de `strings.xml`; sin i18n en ninguna plataforma.
@@ -257,3 +257,8 @@ Android (`Explorer.kt`, `bindIcon` + `loadThumb`): imágenes (y videos desde And
 
 ## Micrófono para las IA (dictado por voz)
 Android: manifiesto con RECORD_AUDIO; `WebChromeClient.onPermissionRequest` → `handleWebPermission`: solo concede audio a páginas https de los hosts de los servicios (claude.ai, replit.com...), pide el permiso de Android la primera vez (`micLauncher`) y después queda concedido; cámara y otros permisos se deniegan. Windows: `setupSession` permite `media` (ya estaba) y ahora también responde `setPermissionCheckHandler`. Si en Windows no capta, revisar Configuración > Privacidad > Micrófono (acceso para apps de escritorio).
+
+## Rediseño en etapas: Clean Architecture + Compose + WinUI 3 (EN CURSO)
+Objetivo del dueño: reescribir con Clean Architecture, tests unitarios, código nativo y últimas tecnologías. Decisiones: **Android = Jetpack Compose + Hilt + Coroutines/Flow (MVVM sobre Clean Architecture)**; **Windows = WinUI 3 + C# (.NET 9) + WebView2** (reescritura total, reemplaza Electron); entrega por etapas (un cd.zip por etapa, el dueño compila en GitHub y se corrige con el error real).
+- **Etapa 1 (hecha, sin tocar el comportamiento):** capa de dominio y datos nueva en `app/claudeck/domain` y `app/claudeck/data`, **en paralelo** al código viejo (que sigue siendo el que corre). Dominio en Kotlin puro (sin `android.*`, testeable en la JVM): `model/AiService`, `model/Account` (inmutable), `policy/UrlRestorePolicy` (java.net.URI), `policy/EmailPolicy`, `usecase/ResolveExactTime`, `NextMonthlyRenewal`, `MarkLimit/ExpireLimits`, `PlanImport` (reglas de importación), `Clock` inyectable, `repository/AccountRepository`. Datos: `AccountJson` (mismo formato en disco) y `SharedPrefsAccountRepository` (mismas claves: `accounts`/`selected`, `accounts_replit`...). Tests en `app/src/test/**` (JUnit4, ~70 casos). **Nada de esto se pudo compilar ni correr en el entorno de desarrollo (sin acceso a Maven): el primer build en GitHub puede mostrar errores a corregir.** Los workflows no se pueden cambiar desde cd.zip: pegar a mano `docs/workflow-tests-snippet.yml`.
+- **Etapa 2 (pendiente):** Hilt + Compose; mover la lógica de `MainActivity` (3.283 líneas) a ViewModels y pantallas; que el código viejo use los casos de uso; borrar `Account.kt` viejo. **Etapa 3:** servicios (burbuja, alarmas, auto-respuesta), explorador, navegador. **Etapa 4:** Windows WinUI 3 (proyecto `windows-native/` con `Domain`, `Application`, `Infrastructure`, `App`, `Tests` en xUnit; mismas reglas que Android, mismo formato de exportación; hay que reescribir `cd.yml`/`windows.yml` y el instalador).
