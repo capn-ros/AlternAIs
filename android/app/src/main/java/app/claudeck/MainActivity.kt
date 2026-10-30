@@ -5,7 +5,14 @@ import app.claudeck.domain.model.AiService
 import app.claudeck.domain.model.AccountPalette
 import app.claudeck.domain.policy.EmailPolicy
 import app.claudeck.domain.usecase.AccountFormResult
+import app.claudeck.domain.policy.AccountInitial
 import app.claudeck.domain.usecase.AccountMenuAction
+import app.claudeck.domain.usecase.DockGesture
+import app.claudeck.domain.usecase.DockGestures
+import app.claudeck.ui.dock.AccountAvatarView
+import app.claudeck.ui.dock.AddAccountButtonView
+import app.claudeck.ui.dock.TimeBarView
+import app.claudeck.ui.dock.AvatarState
 import app.claudeck.domain.usecase.AccountNavigation
 import app.claudeck.domain.usecase.DockPolicy
 import app.claudeck.domain.usecase.AccountStatusText
@@ -199,7 +206,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var store: AccountStore
     private val accounts = mutableListOf<Account>()
     private val webViews = HashMap<String, WebView>()
-    private val chips = HashMap<String, ImageView>()
+    private val chips = HashMap<String, AccountAvatarView>()
     private val failed = HashSet<String>()
 
     // Logo animado en bucle mientras carga la primera vez (o al recargar) la página de una cuenta.
@@ -225,7 +232,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnSnippets: ImageButton
     private lateinit var btnFiles: ImageButton
     private lateinit var btnBrowser: ImageButton
-    private lateinit var timeBar: TimeBar
+    private lateinit var timeBar: TimeBarView
     private lateinit var dockBg: GradientDrawable
     private lateinit var dockHandle: View
     private var dockCollapsed = false
@@ -1185,18 +1192,12 @@ class MainActivity : AppCompatActivity() {
                 return true
             }
 
-            override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
-                if (abs(vx) > abs(vy) && abs(vx) > 600f) {
-                    step(if (vx < 0) 1 else -1)
-                    return true
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean =
+                when (val gesture = DockGestures.fling(vx, vy)) {
+                    is DockGesture.Step -> { step(gesture.delta); true }
+                    is DockGesture.SetCollapsed -> { setDockCollapsed(gesture.collapsed, true); true }
+                    DockGesture.None -> false
                 }
-                // Swipe hacia arriba despliega la barra de cuentas (como el cajón de un launcher); hacia abajo la pliega.
-                if (abs(vy) > abs(vx) && abs(vy) > 500f) {
-                    setDockCollapsed(vy > 0, true)
-                    return true
-                }
-                return false
-            }
         })
         infoRow.setOnTouchListener { v, ev ->
             val r = gd.onTouchEvent(ev)
@@ -1559,7 +1560,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     MotionEvent.ACTION_MOVE -> {
                         val dy = ev.rawY - downY
-                        if (!dragging && abs(dy) > slop * 2 && abs(dy) > abs(ev.rawX - downX) * 1.5f) dragging = true
+                        if (!dragging && DockGestures.startsVerticalDrag(ev.rawX - downX, dy, slop.toFloat())) dragging = true
                     }
                 }
                 return dragging
@@ -1574,7 +1575,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     MotionEvent.ACTION_UP -> {
                         val dy = ev.rawY - downY
-                        if (dragging && abs(dy) > dp(28)) setDockCollapsed(dy > 0, true)
+                        if (dragging) DockGestures.dragCollapse(dy, dp(28).toFloat())?.let { setDockCollapsed(it, true) }
                         dragging = false
                     }
                     MotionEvent.ACTION_CANCEL -> dragging = false
@@ -1612,7 +1613,7 @@ class MainActivity : AppCompatActivity() {
         dot.id = R.id.infoDot
         row.addView(dot, LinearLayout.LayoutParams(dp(16), dp(16)).apply { marginEnd = dp(10) })
 
-        val bar = TimeBar(this)
+        val bar = TimeBarView(this)
         bar.visibility = View.GONE
         row.addView(bar, LinearLayout.LayoutParams(0, dp(22), 1f).apply { marginEnd = dp(8) })
 
@@ -1709,9 +1710,8 @@ class MainActivity : AppCompatActivity() {
             marginEnd = dp(6)
         }
         accounts.forEach { acc ->
-            val circle = ImageView(this)
+            val circle = AccountAvatarView(this)
             circle.tag = acc.id
-            circle.scaleType = ImageView.ScaleType.FIT_CENTER
             circle.setOnClickListener {
                 pop(circle)
                 select(acc.id)
@@ -1725,20 +1725,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Botón agregar: círculo multicolor con un +
-        val add = TextView(this)
-        add.text = "+"
-        add.gravity = Gravity.CENTER
-        add.setTextColor(Color.WHITE)
-        add.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
-        add.typeface = android.graphics.Typeface.DEFAULT_BOLD
-        add.setShadowLayer(3f, 0f, 1f, Color.argb(120, 0, 0, 0))
-        add.includeFontPadding = false
+        val add = AddAccountButtonView(this)
         add.contentDescription = "Agregar cuenta"
-        add.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            gradientType = GradientDrawable.SWEEP_GRADIENT
-            colors = (PALETTE + PALETTE.first()).toIntArray()
-        }
         add.setOnClickListener {
             pop(add)
             addAccountFlow()
@@ -1772,11 +1760,9 @@ class MainActivity : AppCompatActivity() {
     private fun refreshCircles() {
         accounts.forEach { acc ->
             val iv = chips[acc.id] ?: return@forEach
-            iv.setImageBitmap(
-                Ui.timerAvatar(
-                    acc.color, Ui.initial(acc.name), circleSize, circleExtra,
-                    acc.limitFraction(), onSurface(), acc.id == currentId, onSurface()
-                )
+            iv.avatar = AvatarState(
+                color = acc.color, initial = AccountInitial.of(acc.name), fraction = acc.limitFraction(),
+                ringColor = onSurface(), selected = acc.id == currentId, markColor = onSurface()
             )
             iv.contentDescription = AccountStatusText.circleDescription(acc.name, acc.limitUntil, System.currentTimeMillis())
         }

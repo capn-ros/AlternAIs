@@ -7,6 +7,9 @@ object AccountPalette {
         0xFF6C8EAD, 0xFF9A7BD1, 0xFFD96C9F, 0xFF8D99AE
     ).map { it.toInt() }
 
+    /** Colores del degradé del botón «+» (vuelve al primero para cerrar el círculo). */
+    fun sweepColors(): List<Int> = COLORS + COLORS.first()
+
     /** Color sugerido para una cuenta nueva: se van repartiendo en orden según cuántas hay. */
     fun defaultFor(existingCount: Int): Int = COLORS[existingCount.coerceAtLeast(0) % COLORS.size]
 }

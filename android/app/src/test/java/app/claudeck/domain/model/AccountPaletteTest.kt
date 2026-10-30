@@ -20,6 +20,13 @@ class AccountPaletteTest {
         assertEquals(AccountPalette.COLORS[1], AccountPalette.defaultFor(9))
     }
 
+    @Test fun `el degrade del boton mas cierra el circulo volviendo al primer color`() {
+        val sweep = AccountPalette.sweepColors()
+        assertEquals(9, sweep.size)
+        assertEquals(AccountPalette.COLORS, sweep.dropLast(1))
+        assertEquals(sweep.first(), sweep.last())
+    }
+
     @Test fun `una cantidad negativa no rompe`() =
         assertEquals(AccountPalette.COLORS[0], AccountPalette.defaultFor(-3))
 }

@@ -14,10 +14,7 @@ import androidx.core.graphics.ColorUtils
 object Ui {
 
     /** Primera letra/número del nombre, en mayúscula (para el avatar de la cuenta). */
-    fun initial(name: String): String {
-        val c = name.trim().firstOrNull { it.isLetterOrDigit() } ?: return "•"
-        return c.uppercaseChar().toString()
-    }
+    fun initial(name: String): String = app.claudeck.domain.policy.AccountInitial.of(name)
 
     /**
      * Avatar circular de color con una letra. [ring] dibuja un aro blanco (cuenta actual),
