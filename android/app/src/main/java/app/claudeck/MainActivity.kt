@@ -2,6 +2,13 @@ package app.claudeck
 
 import androidx.activity.viewModels
 import app.claudeck.domain.model.AiService
+import app.claudeck.domain.model.AccountPalette
+import app.claudeck.domain.policy.EmailPolicy
+import app.claudeck.domain.usecase.AccountFormResult
+import app.claudeck.ui.account.AccountForm
+import app.claudeck.ui.account.AccountFormActions
+import app.claudeck.ui.account.AccountFormViewModel
+import app.claudeck.ui.account.createAccountFormHost
 import app.claudeck.ui.limits.LimitActions
 import app.claudeck.ui.limits.LimitViewModel
 import app.claudeck.ui.limits.createLimitHost
@@ -120,6 +127,10 @@ class MainActivity : AppCompatActivity() {
     private val limitVm: LimitViewModel by viewModels()
     private var limitHost: android.view.View? = null
 
+    /** Formulario de cuenta (nueva/editar) en Compose. */
+    private val accountFormVm: AccountFormViewModel by viewModels()
+    private var accountFormHost: android.view.View? = null
+
     companion object {
         /** Extra para abrir la app directamente en una cuenta (burbuja, atajos del launcher). */
         const val EXTRA_SELECT = "app.claudeck.extra.SELECT"
@@ -143,10 +154,8 @@ class MainActivity : AppCompatActivity() {
             "https://replit.com", "https://*.replit.com"
         )
 
-        private val PALETTE = listOf(
-            "#E07A5F", "#F2A541", "#81B29A", "#4FB0C6",
-            "#6C8EAD", "#9A7BD1", "#D96C9F", "#8D99AE"
-        ).map { Color.parseColor(it) }
+        /** Una sola paleta, la del dominio (`AccountPalette`): la usan el formulario, el botón + y la importación. */
+        private val PALETTE = AccountPalette.COLORS
 
         /**
          * Se inyecta en cada página: recuerda los blobs creados (por si la página los revoca antes de
@@ -2233,79 +2242,55 @@ class MainActivity : AppCompatActivity() {
         showAccountDialog(null)
     }
 
+    /** Formulario de cuenta nueva/editar: es Compose (`ui/account`); acá solo se abre y se guarda. */
     private fun showAccountDialog(existing: Account?) {
-        val v = layoutInflater.inflate(R.layout.dialog_account, null)
-        val inName = v.findViewById<TextInputEditText>(R.id.inputName)
-        val inPurpose = v.findViewById<TextInputEditText>(R.id.inputPurpose)
-        val inEmail = v.findViewById<TextInputEditText>(R.id.inputEmail)
-        val row = v.findViewById<LinearLayout>(R.id.colorRow)
-        var color = existing?.color ?: PALETTE[accounts.size % PALETTE.size]
-        inName.setText(existing?.name ?: "")
-        inPurpose.setText(existing?.purpose ?: "")
-        inEmail.setText(existing?.email ?: "")
-
-        val dots = mutableListOf<Pair<Int, View>>()
-        fun paint() {
-            dots.forEach { (c, view) -> view.background = dotDrawable(c, c == color) }
-        }
-        PALETTE.forEach { c ->
-            val dot = View(this)
-            val lp = LinearLayout.LayoutParams(dp(40), dp(40))
-            lp.setMargins(dp(4), dp(4), dp(4), dp(4))
-            dot.layoutParams = lp
-            dot.setOnClickListener {
-                color = c
-                paint()
-                pop(dot)
-            }
-            row.addView(dot)
-            dots.add(c to dot)
-        }
-        paint()
-
-        val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle(if (existing == null) "Nueva cuenta" else "Editar cuenta")
-            .setView(v)
-            .setPositiveButton("Guardar", null)
-            .setNegativeButton("Cancelar", null)
-            .create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val name = inName.text?.toString()?.trim().orEmpty()
-                if (name.isEmpty()) {
-                    inName.error = "Poné un nombre"
-                    return@setOnClickListener
-                }
-                val purpose = inPurpose.text?.toString()?.trim().orEmpty()
-                val email = cleanEmail(inEmail.text?.toString())
-                if (existing == null) {
-                    val acc = Account(Account.newId(), name, purpose, color, email = email)
-                    accounts.add(acc)
-                    onAccountsChanged()
-                    rebuildChips()
-                    updateEmptyState()
-                    select(acc.id)
-                    maybeSuggestBubble()
-                } else {
-                    existing.name = name
-                    existing.purpose = purpose
-                    existing.email = email
-                    existing.color = color
-                    onAccountsChanged()
-                    rebuildChips()
-                    updateInfo()
-                    if (existing.id == currentId) progress.setIndicatorColor(chrome(existing))
-                }
-                dialog.dismiss()
-            }
-        }
-        dialog.show()
+        ensureAccountFormHost()
+        accountFormVm.open(
+            AccountForm(
+                accountId = existing?.id,
+                name = existing?.name ?: "",
+                purpose = existing?.purpose ?: "",
+                email = existing?.email ?: "",
+                color = existing?.color ?: AccountPalette.defaultFor(accounts.size)
+            )
+        )
     }
 
-    private fun cleanEmail(raw: String?): String {
-        val t = raw?.trim().orEmpty().take(80)
-        return if (Regex("^[^\\s@]+@[^\\s@]+$").matches(t)) t else ""
+    private fun ensureAccountFormHost() {
+        if (accountFormHost != null) return
+        accountFormHost = createAccountFormHost(this, accountFormVm, accountFormActions).also {
+            addContentView(it, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
     }
+
+    private val accountFormActions = object : AccountFormActions {
+        override fun save(accountId: String?, data: AccountFormResult.Valid) {
+            if (accountId == null) {
+                val acc = Account(Account.newId(), data.name, data.purpose, data.color, email = data.email)
+                accounts.add(acc)
+                onAccountsChanged()
+                rebuildChips()
+                updateEmptyState()
+                select(acc.id)
+                maybeSuggestBubble()
+            } else {
+                val existing = accounts.firstOrNull { it.id == accountId } ?: return
+                existing.name = data.name
+                existing.purpose = data.purpose
+                existing.email = data.email
+                existing.color = data.color
+                onAccountsChanged()
+                rebuildChips()
+                updateInfo()
+                if (existing.id == currentId) progress.setIndicatorColor(chrome(existing))
+            }
+        }
+        override fun surface(): Int = store.surface
+        override fun onSurface(): Int = store.onSurface
+        override fun accent(): Int = this@MainActivity.accent()
+    }
+
+    private fun cleanEmail(raw: String?): String = EmailPolicy.clean(raw)
 
     /** Al tener la segunda cuenta se sugiere (una sola vez) la burbuja flotante. */
     private fun maybeSuggestBubble() {
