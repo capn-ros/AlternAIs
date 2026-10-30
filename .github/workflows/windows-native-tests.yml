@@ -1,5 +1,6 @@
 # Pegar a mano como .github/workflows/windows-native-tests.yml (cd.zip no puede modificar workflows).
-# Compila el dominio C# y corre los tests xUnit. Se lanza con "Run workflow".
+# Compila Domain, Application e Infrastructure y corre los tests xUnit. Se lanza con "Run workflow":
+# el push que hace cd.yml con GITHUB_TOKEN NO dispara otros workflows, así que no arranca solo.
 name: Windows-native tests
 on:
   workflow_dispatch:
@@ -13,9 +14,10 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
-      - name: Tests unitarios
+      - name: Tests de dominio
         run: dotnet test windows-native/tests/AlternAIs.Domain.Tests --logger "trx;LogFileName=results.trx" --logger "console;verbosity=normal"
       - name: Tests de aplicación e infraestructura
+        if: ${{ !cancelled() }}
         run: dotnet test windows-native/tests/AlternAIs.Application.Tests --logger "trx;LogFileName=results.trx" --logger "console;verbosity=normal"
       - name: Subir reporte
         if: always()
