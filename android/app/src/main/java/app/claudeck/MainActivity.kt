@@ -5,6 +5,12 @@ import app.claudeck.domain.model.AiService
 import app.claudeck.domain.model.AccountPalette
 import app.claudeck.domain.policy.EmailPolicy
 import app.claudeck.domain.usecase.AccountFormResult
+import app.claudeck.domain.usecase.AccountMenuAction
+import app.claudeck.domain.usecase.AccountStatusText
+import app.claudeck.domain.usecase.BuildAccountMenu
+import app.claudeck.ui.accountmenu.AccountMenuActions
+import app.claudeck.ui.accountmenu.AccountMenuViewModel
+import app.claudeck.ui.accountmenu.createAccountMenuHost
 import app.claudeck.ui.account.AccountForm
 import app.claudeck.ui.account.AccountFormActions
 import app.claudeck.ui.account.AccountFormViewModel
@@ -130,6 +136,10 @@ class MainActivity : AppCompatActivity() {
     /** Formulario de cuenta (nueva/editar) en Compose. */
     private val accountFormVm: AccountFormViewModel by viewModels()
     private var accountFormHost: android.view.View? = null
+
+    /** Menú de cuenta (hoja inferior) en Compose. */
+    private val accountMenuVm: AccountMenuViewModel by viewModels()
+    private var accountMenuHost: android.view.View? = null
 
     companion object {
         /** Extra para abrir la app directamente en una cuenta (burbuja, atajos del launcher). */
@@ -1769,9 +1779,7 @@ class MainActivity : AppCompatActivity() {
                     acc.limitFraction(), onSurface(), acc.id == currentId, onSurface()
                 )
             )
-            iv.contentDescription = if (acc.limitActive()) {
-                "${acc.name}, en descanso, faltan " + formatRemaining(acc.limitUntil - System.currentTimeMillis())
-            } else acc.name
+            iv.contentDescription = AccountStatusText.circleDescription(acc.name, acc.limitUntil, System.currentTimeMillis())
         }
     }
 
@@ -1793,23 +1801,14 @@ class MainActivity : AppCompatActivity() {
         dot.setColor(chrome(acc))
         infoDot.background = dot
 
-        val parts = mutableListOf(acc.name)
-        if (acc.purpose.isNotBlank()) parts.add(acc.purpose)
-        if (acc.limitActive()) {
-            val until = DateFormat.format("EEE HH:mm", acc.limitUntil)
-            val left = formatRemaining(acc.limitUntil - System.currentTimeMillis())
-            parts.add("En descanso hasta $until (faltan $left)")
-        } else {
-            parts.add("Disponible")
-        }
-        info.text = parts.joinToString(" · ")
-
-        if (acc.limitActive()) {
-            val left = formatRemaining(acc.limitUntil - System.currentTimeMillis())
-            timeBar.set(acc.limitFraction(), "${acc.name} · faltan $left", chrome(acc), onSurface())
-        } else {
-            timeBar.set(1f, "${acc.name} · Disponible", chrome(acc), onSurface())
-        }
+        val now = System.currentTimeMillis()
+        info.text = AccountStatusText.infoLine(
+            acc.name, acc.purpose, acc.limitUntil, now, java.time.ZoneId.systemDefault(), java.util.Locale.getDefault()
+        )
+        timeBar.set(
+            if (acc.limitActive(now)) acc.limitFraction() else 1f,
+            AccountStatusText.timeBarText(acc.name, acc.limitUntil, now), chrome(acc), onSurface()
+        )
     }
 
     private fun tick() {
@@ -2365,31 +2364,35 @@ class MainActivity : AppCompatActivity() {
         return tv
     }
 
+    /** Menú de cada cuenta: es Compose (`ui/accountmenu`); acá solo se abre y se ejecuta la opción elegida. */
     private fun showAccountMenu(acc: Account) {
-        val sheet = BottomSheetDialog(this)
-        val col = sheetColumn()
-        val status = if (acc.limitActive()) {
-            "En descanso hasta " + DateFormat.format("EEE HH:mm", acc.limitUntil)
-        } else "Disponible"
-        sheetHeader(col, acc.name, listOf(acc.purpose, acc.email, status).filter { it.isNotBlank() }.joinToString(" · "), acc.color)
-        sheetRow(col, sheet, "Editar nombre, propósito o color", R.drawable.ic_edit, chrome(acc)) { showAccountDialog(acc) }
-        sheetRow(col, sheet, "Recargar", R.drawable.ic_reload, chrome(acc)) { if (webViews.containsKey(acc.id)) reloadWithLogo(acc.id) else select(acc.id) }
-        sheetRow(col, sheet, "Marcar límite alcanzado…", R.drawable.ic_clock, chrome(acc)) { showLimitDialog(acc) }
-        if (acc.limitActive()) sheetRow(col, sheet, "Quitar marca de límite", R.drawable.ic_check, chrome(acc)) { setLimit(acc, 0L) }
-        sheetRow(col, sheet, "Cerrar sesión y borrar datos", R.drawable.ic_logout, chrome(acc)) {
-            confirm(
-                "Cerrar sesión",
-                "Se cierra la sesión de «${acc.name}» y se borran sus cookies y datos en este dispositivo."
-            ) { wipeAccount(acc, remove = false) }
+        ensureAccountMenuHost()
+        accountMenuVm.open(acc.id, chrome(acc), acc.name, acc.purpose, acc.email, acc.limitUntil)
+    }
+
+    private fun ensureAccountMenuHost() {
+        if (accountMenuHost != null) return
+        accountMenuHost = createAccountMenuHost(this, accountMenuVm, accountMenuActions).also {
+            addContentView(it, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        sheetRow(col, sheet, "Eliminar cuenta", R.drawable.ic_trash, chrome(acc)) {
-            confirm(
-                "Eliminar cuenta",
-                "Se quita «${acc.name}» de la app y se borran sus datos en este dispositivo. Tu cuenta de ${store.service.label} no se toca."
-            ) { wipeAccount(acc, remove = true) }
+    }
+
+    private val accountMenuActions = object : AccountMenuActions {
+        override fun run(accountId: String, action: AccountMenuAction) {
+            val acc = accounts.firstOrNull { it.id == accountId } ?: return
+            when (action) {
+                AccountMenuAction.EDIT -> showAccountDialog(acc)
+                AccountMenuAction.RELOAD -> if (webViews.containsKey(acc.id)) reloadWithLogo(acc.id) else select(acc.id)
+                AccountMenuAction.MARK_LIMIT -> showLimitDialog(acc)
+                AccountMenuAction.CLEAR_LIMIT -> setLimit(acc, 0L)
+                AccountMenuAction.SIGN_OUT, AccountMenuAction.DELETE -> {
+                    val ask = BuildAccountMenu.confirmation(action, acc.name, store.service.label) ?: return
+                    confirm(ask.title, ask.message) { wipeAccount(acc, remove = action == AccountMenuAction.DELETE) }
+                }
+            }
         }
-        sheet.setContentView(col)
-        sheet.show()
+        override fun surface(): Int = store.surface
+        override fun onSurface(): Int = store.onSurface
     }
 
     // ---------------------------------------------------------------- Mensajes guardados

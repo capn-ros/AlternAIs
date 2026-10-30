@@ -14,17 +14,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 
 /** "faltan 2 h 10 min", "3 d 4 h", "12 min" (mínimo 1 min). */
-internal fun formatRemaining(ms: Long): String {
-    val totalMin = (ms / 60_000L).coerceAtLeast(1L)
-    val days = totalMin / (60 * 24)
-    val hours = (totalMin % (60 * 24)) / 60
-    val mins = totalMin % 60
-    return when {
-        days > 0 -> "$days d $hours h"
-        hours > 0 -> "$hours h $mins min"
-        else -> "$mins min"
-    }
-}
+internal fun formatRemaining(ms: Long): String = app.claudeck.domain.usecase.RemainingTime.format(ms)
 
 /**
  * Alarma por cada cuenta en descanso: cuando termina el plazo suena un aviso (aunque la app esté cerrada).
