@@ -52,6 +52,21 @@ public class StateJsonTests
     }
 
     [Fact]
+    public void Un_id_con_salto_de_linea_al_final_se_descarta()
+    {
+        // En .NET «$» acepta un salto de línea final; el id acaba en el nombre de la partición, así que no puede pasar.
+        var s = StateJson.Parse("""{ "accounts": [ { "id": "a1b2c3d4e5f6\n", "name": "X" } ] }""");
+        Assert.Empty(s.Claude.Accounts);
+    }
+
+    [Fact]
+    public void Un_color_con_salto_de_linea_al_final_vuelve_al_de_fabrica()
+    {
+        var s = StateJson.Parse("""{ "accounts": [ { "id": "a1b2c3d4e5f6", "name": "X", "color": "#4FB0C6\n" } ] }""");
+        Assert.Equal(ColorHex.Parse(StateJson.DefaultColorHex), s.Claude.Accounts.Single().Color);
+    }
+
+    [Fact]
     public void Corrige_la_cuenta_activa_que_no_existe()
     {
         var s = StateJson.Parse(Electron);
