@@ -1,0 +1,62 @@
+# Pegar a mano como .github/workflows/windows-native.yml (cd.zip no puede modificar workflows).
+# Si ya habías pegado windows-native-tests.yml, borralo: este lo reemplaza (corre los mismos tests y además compila e instala).
+# Se lanza con "Run workflow". NO reemplaza todavía al job de Windows (Electron) de cd.yml: hacelo cuando verifiques esta versión.
+name: Windows nativo
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "windows-native/**"
+      - ".github/workflows/windows-native.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Tests del dominio
+        continue-on-error: true
+        run: dotnet test windows-native/tests/AlternAIs.Domain.Tests --logger "trx;LogFileName=domain.trx" --logger "console;verbosity=normal"
+
+      - name: Tests de aplicación e infraestructura
+        continue-on-error: true
+        run: dotnet test windows-native/tests/AlternAIs.Application.Tests --logger "trx;LogFileName=application.trx" --logger "console;verbosity=normal"
+
+      - name: Subir reporte de tests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tests-Windows
+          path: windows-native/tests/**/TestResults
+          retention-days: 7
+
+      - name: Compilar y publicar la app (WinUI 3, autocontenida)
+        run: >
+          dotnet publish windows-native/src/AlternAIs.App/AlternAIs.App.csproj
+          -c Release -r win-x64 -p:Platform=x64 -p:Version=1.0.${{ github.run_number }}
+          -o windows-native/publish
+
+      - name: Instalador (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          & $iscc "/DAppVersion=1.0.${{ github.run_number }}" windows-native\installer\alternais.iss
+          if ($LASTEXITCODE -ne 0) { throw "Falló Inno Setup" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AlternAIs-Windows-Nativo
+          path: windows-native/dist/AlternAIs-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 7
