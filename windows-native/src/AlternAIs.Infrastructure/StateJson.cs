@@ -13,10 +13,10 @@ namespace AlternAIs.Infrastructure;
 /// </summary>
 public static partial class StateJson
 {
-    [GeneratedRegex(@"^[a-f0-9]{6,32}\z")]
+    [GeneratedRegex("^[a-f0-9]{6,32}$")]
     private static partial Regex IdShape();
 
-    [GeneratedRegex(@"^#[0-9a-fA-F]{6}\z")]
+    [GeneratedRegex(@"^#[0-9a-fA-F]{6}$")]
     private static partial Regex RgbShape();
 
     private static readonly JsonSerializerOptions Pretty = new() { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };

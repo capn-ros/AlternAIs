@@ -109,7 +109,6 @@ import androidx.webkit.ProfileStore
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
-import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.color.MaterialColors
@@ -243,11 +242,7 @@ class MainActivity : AppCompatActivity() {
     private var drawerOpen = false
     private var dockRadius = 0f
     private lateinit var dockLayer: LayerDrawable
-    private val drawerIcons = mutableListOf<TextView>()
-    private var drawerCaption: TextView? = null
     private var drawerAboutRow: TextView? = null
-    private var tabClaude: TextView? = null
-    private var tabReplit: TextView? = null
 
     private var currentId: String? = null
     private var previousId: String? = null
@@ -1116,10 +1111,8 @@ class MainActivity : AppCompatActivity() {
         if (::dockBg.isInitialized) dockBg.setColor(store.surface)
         if (::drawerBg.isInitialized) drawerBg.setColor(store.surface)
         if (::info.isInitialized) info.setTextColor(store.onSurface)
-        drawerIcons.forEach { it.setTextColor(store.onSurface) }
         if (::emptyView.isInitialized) recolorTexts(emptyView, store.onSurface)
         if (::errorView.isInitialized) recolorTexts(errorView, store.onSurface)
-        paintServiceTabs()
         resetPanels()
     }
 
@@ -1129,22 +1122,8 @@ class MainActivity : AppCompatActivity() {
         if (v is ViewGroup) for (i in 0 until v.childCount) recolorTexts(v.getChildAt(i), color)
     }
 
-    private fun dotDrawable(color: Int, selected: Boolean): GradientDrawable {
-        val d = GradientDrawable()
-        d.shape = GradientDrawable.OVAL
-        d.setColor(color)
-        if (selected) {
-            d.setStroke(dp(3), onSurface())
-        }
-        return d
-    }
-
     /** Texto e íconos neutros sobre la barra: dependen del servicio activo, no del tema del sistema. */
     private fun onSurface(): Int = store.onSurface
-
-    /** Texto sobre los menús del sistema (hojas inferiores), que siguen el tema del sistema. */
-    private fun sheetOnSurface(): Int =
-        MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, Color.BLACK)
 
     private fun updateEmptyState() {
         val empty = accounts.isEmpty()
@@ -1329,10 +1308,7 @@ class MainActivity : AppCompatActivity() {
             cornerRadius = dp(2).toFloat()
             setColor(ColorUtils.setAlphaComponent(c, 150))
         }
-        drawerCaption?.setTextColor(c)
-        paintServiceTabs()
         settingsVm.setAccent(c)
-        drawerIcons.forEach { tv -> tv.compoundDrawablesRelative[0]?.setTint(c) }
     }
 
     private fun applyIcon(tv: TextView, icon: Int, tint: Int = accent()) {
@@ -1401,21 +1377,6 @@ class MainActivity : AppCompatActivity() {
             )
         )
         drawer = d
-    }
-
-    /** Resalta la mitad activa (Claude / Replit) con el color de la cuenta activa. */
-    private fun paintServiceTabs() {
-        val c = accent()
-        val active = store.service
-        listOf(tabClaude to Service.CLAUDE, tabReplit to Service.REPLIT).forEach { (tv, svc) ->
-            tv ?: return@forEach
-            val on = svc == active
-            tv.setTextColor(if (on) c else (onSurface() and 0x00FFFFFF) or (0x99 shl 24))
-            tv.background = if (on) GradientDrawable().apply {
-                cornerRadius = dp(18).toFloat()
-                setColor((c and 0x00FFFFFF) or (0x2E shl 24))
-            } else null
-        }
     }
 
     /**
@@ -2293,59 +2254,6 @@ class MainActivity : AppCompatActivity() {
         val tv = TypedValue()
         theme.resolveAttribute(android.R.attr.selectableItemBackground, tv, true)
         return tv.resourceId
-    }
-
-    private fun sheetColumn(): LinearLayout {
-        val col = LinearLayout(this)
-        col.orientation = LinearLayout.VERTICAL
-        col.setPadding(dp(8), dp(12), dp(8), dp(24))
-        return col
-    }
-
-    private fun sheetHeader(col: LinearLayout, title: String, subtitle: String?, color: Int?) {
-        val head = LinearLayout(this)
-        head.orientation = LinearLayout.HORIZONTAL
-        head.gravity = android.view.Gravity.CENTER_VERTICAL
-        head.setPadding(dp(16), dp(4), dp(16), dp(12))
-        if (color != null) {
-            val dot = View(this)
-            dot.background = dotDrawable(color, false)
-            head.addView(dot, LinearLayout.LayoutParams(dp(14), dp(14)).apply { marginEnd = dp(12) })
-        }
-        val texts = LinearLayout(this)
-        texts.orientation = LinearLayout.VERTICAL
-        val t = TextView(this)
-        t.text = title
-        t.textSize = 18f
-        t.setTypeface(t.typeface, android.graphics.Typeface.BOLD)
-        t.setTextColor(sheetOnSurface())
-        texts.addView(t)
-        if (!subtitle.isNullOrBlank()) {
-            val s = TextView(this)
-            s.text = subtitle
-            s.textSize = 13f
-            s.setTextColor(ColorUtils.setAlphaComponent(sheetOnSurface(), 150))
-            texts.addView(s)
-        }
-        head.addView(texts)
-        col.addView(head)
-    }
-
-    private fun sheetRow(col: LinearLayout, sheet: BottomSheetDialog?, text: String, icon: Int? = null, tint: Int = accent(), onClick: () -> Unit): TextView {
-        val tv = TextView(this)
-        tv.text = text
-        tv.textSize = 16f
-        tv.setTextColor(if (sheet == null) onSurface() else sheetOnSurface())
-        tv.gravity = Gravity.CENTER_VERTICAL
-        tv.setPadding(dp(16), dp(14), dp(16), dp(14))
-        if (icon != null) applyIcon(tv, icon, tint)
-        tv.setBackgroundResource(selectableBg())
-        tv.setOnClickListener {
-            sheet?.dismiss()
-            onClick()
-        }
-        col.addView(tv)
-        return tv
     }
 
     /** Menú de cada cuenta: es Compose (`ui/accountmenu`); acá solo se abre y se ejecuta la opción elegida. */

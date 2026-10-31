@@ -43,6 +43,9 @@ El APK usa siempre la misma firma (incluida en `android/app/debug.keystore`), as
 - Ventana sin marco estándar de Windows, con barra de título y controles propios. El instalador de Inno Setup también incluye gráficos de marca a juego.
 - Para probarla en tu PC: `cd windows && npm install && npm start`.
 
+### Windows nativo (en pruebas)
+Hay una versión nueva en `windows-native/` (WinUI 3 + .NET 9 + WebView2, sin Electron). Se compila con el workflow `windows-native.yml` (artifact `AlternAIs-Windows-Nativo`) y su instalador se instala encima de la versión actual. Lee el mismo `accounts.json`, así que conserva tus cuentas, pero **hay que volver a iniciar sesión en cada una** (las sesiones de Electron no se migran). Necesita *Microsoft Edge WebView2 Runtime* (viene con Windows 10/11 actualizados). Todavía no tiene explorador de archivos interno ni bandeja del sistema.
+
 ## Limitaciones conocidas
 
 - **"Continuar con Google"** puede no funcionar dentro de un navegador embebido (Google lo bloquea a veces). Si falla, entrá con tu email (te llega un código).

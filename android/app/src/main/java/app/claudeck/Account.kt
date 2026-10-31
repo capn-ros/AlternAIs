@@ -2,8 +2,10 @@ package app.claudeck
 
 import android.content.Context
 import android.net.Uri
+import app.claudeck.data.AccountJson
+import app.claudeck.domain.model.AiService
+import app.claudeck.domain.policy.UrlRestorePolicy
 import org.json.JSONArray
-import org.json.JSONObject
 import java.util.UUID
 
 /** Cada servicio es una "mitad" de la app: sitio propio y cuentas propias (guardadas por separado). */
@@ -28,21 +30,8 @@ enum class Service(
 }
 
 /** Solo se restaura una URL HTTPS del sitio del servicio; nunca un destino externo guardado en el estado. */
-internal fun urlForRestore(service: Service, raw: String?): String? {
-    val value = raw?.takeIf { it.isNotBlank() && it.length <= 4096 } ?: return null
-    return try {
-        val uri = Uri.parse(value)
-        val host = uri.host?.lowercase() ?: return null
-        if (
-            uri.scheme?.equals("https", ignoreCase = true) != true ||
-            service.hosts.none { h -> host == h || host.endsWith(".$h") } ||
-            uri.userInfo != null ||
-            (uri.port != -1 && uri.port != 443)
-        ) null else uri.buildUpon().clearQuery().fragment(null).build().toString()
-    } catch (_: Exception) {
-        null
-    }
-}
+internal fun urlForRestore(service: Service, raw: String?): String? =
+    UrlRestorePolicy.restorable(AiService.fromKey(service.key), raw)
 
 /** Compatibilidad: restauración para claude.ai. */
 internal fun claudeUrlForRestore(raw: String?): String? = urlForRestore(Service.CLAUDE, raw)
@@ -89,6 +78,16 @@ data class Account(
     }
 }
 
+private fun app.claudeck.domain.model.Account.toUi() = Account(
+    id = id, name = name, purpose = purpose, color = color, limitUntil = limitUntil,
+    limitStart = limitStart, lastUrl = lastUrl, email = email, autoReply = autoReply
+)
+
+private fun Account.toDomain() = app.claudeck.domain.model.Account(
+    id = id, name = name, purpose = purpose, color = color, limitUntil = limitUntil,
+    limitStart = limitStart, lastUrl = lastUrl, email = email, autoReply = autoReply
+)
+
 /**
  * Persistencia en SharedPreferences("claudeck"). La comparten la Activity y el servicio de la
  * burbuja (mismo proceso), así que ambos ven siempre los mismos datos.
@@ -133,48 +132,14 @@ class AccountStore(context: Context) {
     fun load(): List<Account> = loadFor(service)
 
     /** Cuentas de un servicio concreto (sirve para exportar las dos mitades). */
-    fun loadFor(svc: Service): List<Account> {
-        val raw = prefs.getString(accountsKey(svc), null) ?: return emptyList()
-        return try {
-            val arr = JSONArray(raw)
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                Account(
-                    id = o.getString("id"),
-                    name = o.getString("name"),
-                    purpose = o.optString("purpose", ""),
-                    color = o.getInt("color"),
-                    limitUntil = o.optLong("limitUntil", 0L),
-                    limitStart = o.optLong("limitStart", 0L),
-                    lastUrl = urlForRestore(svc, o.optString("lastUrl", "")) ?: "",
-                    email = o.optString("email", ""),
-                    autoReply = o.optString("autoReply", "")
-                )
-            }
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
+    fun loadFor(svc: Service): List<Account> =
+        AccountJson.decode(AiService.fromKey(svc.key), prefs.getString(accountsKey(svc), null)).map { it.toUi() }
 
     fun save(list: List<Account>) = saveFor(service, list)
 
     fun saveFor(svc: Service, list: List<Account>) {
-        val arr = JSONArray()
-        list.forEach { a ->
-            arr.put(
-                JSONObject()
-                    .put("id", a.id)
-                    .put("name", a.name)
-                    .put("purpose", a.purpose)
-                    .put("color", a.color)
-                    .put("limitUntil", a.limitUntil)
-                    .put("limitStart", a.limitStart)
-                    .put("lastUrl", urlForRestore(svc, a.lastUrl) ?: "")
-                    .put("email", a.email)
-                    .put("autoReply", a.autoReply)
-            )
-        }
-        prefs.edit().putString(accountsKey(svc), arr.toString()).apply()
+        val raw = AccountJson.encode(AiService.fromKey(svc.key), list.map { it.toDomain() })
+        prefs.edit().putString(accountsKey(svc), raw).apply()
         // Cada vez que cambian las cuentas se reprograman las alarmas de fin de descanso.
         LimitAlarms.reschedule(appContext)
     }

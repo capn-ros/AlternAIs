@@ -4,7 +4,7 @@ package app.claudeck.domain.usecase
 object PickFilter {
     /**
      * ¿Se puede elegir este archivo para subirlo? [accept] son los tipos que pidió la página
-     * (comodines de tipo como «image» o «audio» con asterisco, «.pdf», «application/pdf»…); vacío = todo. Las carpetas siempre se muestran.
+     * («image/*», «.pdf», «application/pdf»…); vacío = todo. Las carpetas siempre se muestran.
      * [mimeOf] devuelve el tipo MIME de una extensión (o "" si no se conoce).
      */
     fun accepts(accept: List<String>, fileName: String, isDir: Boolean, mimeOf: (String) -> String): Boolean {

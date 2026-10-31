@@ -252,4 +252,18 @@ public class AccountsServiceTests
         svc.SetSnippets(["  ", "uno", "dos"]);
         Assert.Equal(new[] { "uno", "dos" }, svc.State.Snippets.ToArray());
     }
+
+    [Fact]
+    public void Una_cuenta_del_otro_servicio_se_actualiza_sin_cambiar_de_servicio()
+    {
+        var state = AppState.Initial.WithBucket(AiService.Replit, new ServiceBucket([T.Acc("rrrrrrrrrrrr")], null));
+        var (svc, _) = Make(state);
+        Assert.Equal(AiService.Claude, svc.State.Service);
+        Assert.Equal(AiService.Replit, svc.ServiceOf("rrrrrrrrrrrr"));
+        svc.RememberUrl("rrrrrrrrrrrr", "https://replit.com/@u/p");
+        Assert.Equal("https://replit.com/@u/p", svc.State.Replit.Accounts[0].LastUrl);
+        svc.SetAutoReply("rrrrrrrrrrrr", "hola");
+        Assert.Equal("hola", svc.State.Replit.Accounts[0].AutoReply);
+        Assert.Null(svc.ServiceOf("nada"));
+    }
 }

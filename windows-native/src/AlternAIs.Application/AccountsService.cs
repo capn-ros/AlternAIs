@@ -103,20 +103,26 @@ public sealed class AccountsService
     public void SetAutoReply(string id, string text) =>
         ReplaceAccount(id, a => a with { AutoReply = text.Trim().Length > 4000 ? text.Trim()[..4000] : text.Trim() });
 
+    /// <summary>Servicio al que pertenece una cuenta (puede no ser el que se está viendo).</summary>
+    public AiService? ServiceOf(string id) =>
+        Enum.GetValues<AiService>().Where(sv => State.Bucket(sv).Accounts.Any(a => a.Id == id)).Select(sv => (AiService?)sv).FirstOrDefault();
+
     public void RememberUrl(string id, string? url)
     {
-        var clean = AlternAIs.Domain.Policies.UrlRestorePolicy.Restorable(State.Service, url);
+        if (ServiceOf(id) is not { } service) return;
+        var clean = AlternAIs.Domain.Policies.UrlRestorePolicy.Restorable(service, url);
         if (clean is null) return;
         ReplaceAccount(id, a => a with { LastUrl = clean });
     }
 
     private void ReplaceAccount(string id, Func<Account, Account> change)
     {
-        var current = Accounts.FirstOrDefault(a => a.Id == id);
-        if (current is null) return;
+        if (ServiceOf(id) is not { } service) return;
+        var bucket = State.Bucket(service);
+        var current = bucket.Accounts.First(a => a.Id == id);
         var changed = change(current);
         if (changed == current) return;
-        Update(b => b with { Accounts = b.Accounts.Select(a => a.Id == id ? changed : a).ToList() });
+        Commit(State.WithBucket(service, bucket with { Accounts = bucket.Accounts.Select(a => a.Id == id ? changed : a).ToList() }));
     }
 
     /// <summary>Limpia los descansos vencidos de ambos servicios. Devuelve las cuentas que terminaron.</summary>
