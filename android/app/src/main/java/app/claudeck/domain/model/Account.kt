@@ -37,6 +37,9 @@ data class Account(
     }
 
     companion object {
+        /** Id nuevo (12 caracteres). Una vez creado, nunca se cambia: de él depende el perfil de WebView. */
+        fun newId(): String = java.util.UUID.randomUUID().toString().replace("-", "").take(12)
+
         private const val HOUR = 3_600_000L
         private val STANDARD_PERIODS = listOf(5 * HOUR, 24 * HOUR, 7 * 24 * HOUR, 30 * 24 * HOUR)
         const val MAX_NAME = 24

@@ -92,8 +92,7 @@ class AutoReplyService : android.app.Service() {
             // Mensaje automático: se limpia antes de enviar, así nunca se manda dos veces.
             text = acc.autoReply
             if (text.isEmpty()) { finish(id); return START_NOT_STICKY }
-            acc.autoReply = ""
-            store.saveFor(svc, list)
+            store.saveFor(svc, list.map { if (it.id == id) it.copy(autoReply = "") else it })
         }
         try {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager

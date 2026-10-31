@@ -10,7 +10,7 @@ Dos apps independientes, sin código compartido (se duplica la lógica a propós
 
 | Plataforma | Stack | Carpeta | Aislamiento de sesión |
 |---|---|---|---|
-| Android | Kotlin, vistas XML + Material 3, WebView | `android/` | **Perfiles de WebView** (`androidx.webkit` `ProfileStore`, nombre `acc_<id>`) |
+| Android | Kotlin, Compose + Hilt (explorador, navegador, mensajes, ajustes, barra de cuentas) con marcos en vistas XML, WebView | `android/` | **Perfiles de WebView** (`androidx.webkit` `ProfileStore`, nombre `acc_<id>`) |
 | Windows | Electron 33 (JS plano, sin framework ni bundler) | `windows/` | **Partición persistente** `persist:acc_<id>` |
 
 Idioma de UI y mensajes: **español rioplatense** (voseo: "Agregá", "Poné", "usás"). Mantenerlo.
@@ -358,3 +358,8 @@ Objetivo del dueño: reescribir con Clean Architecture, tests unitarios, código
 - `Account.kt` (Android): `urlForRestore` delega en `UrlRestorePolicy` y `AccountStore.loadFor/saveFor` leen/escriben con `AccountJson` (mismo formato y claves) convirtiendo entre el `Account` mutable de la UI y el inmutable del dominio. El `Account`/`AccountStore` mutable sigue existiendo para la UI (`MainActivity`, alarmas, servicios): reemplazarlo del todo exige reescribir ~80 usos en `MainActivity` y se dejó a propósito.
 - Windows nativo: mensaje de bienvenida la primera vez (`ShowWelcomeAsync`, usa `TutorialShown`) y descargas del navegador configurables (Ajustes: carpeta Descargas / preguntar / carpeta fija con `FolderPicker`; `DownloadStarting` del navegador interno). No portados todavía: explorador interno, bandeja del sistema.
 - README: sección «Windows nativo (en pruebas)».
+
+### Etapa 3 — cierre de Android (pendiente de verificar en GitHub y A OJO en el teléfono)
+- **`Account` inmutable:** `Account.kt` ya no tiene la clase mutable: `typealias Account = domain.model.Account` (más `limitActive()` y `limitFraction()` sin argumentos como atajos con la hora actual) y `AccountStore` lee/escribe directo con `AccountJson` (mismo formato y claves). `Account.newId()` pasó al dominio. En `MainActivity`, `updateAcc(id) { it.copy(...) }` reemplaza la cuenta en `accounts` (devuelve la nueva; después hay que llamar a `store.save(accounts)` / `onAccountsChanged()`). Mutaciones pasadas a `copy`: `sendNow`, `tick`, `rememberPage`, `accountFormActions.save`, `setLimit`, `setAutoReply`, `processAutoQueue` y `AutoReplyService`. Ojo: un `acc` capturado antes de un cambio queda viejo; buscar por id.
+- **Explorador en Compose:** `ui/explorer/ExplorerScreen.kt` (pantalla, diálogos, menú de «mantener apretado», miniaturas con `produceState`), `ExplorerState.kt` (estado observable) e interfaz `ExplorerActions`. `Explorer.kt` conserva la misma API hacia `MainActivity` (`view`, `open`, `refresh`, `onBack`, `startPick`, `cancelPick`, `dropPick`, `setBorder`): el marco (borde, esquinas, animación, gesto de cerrar) sigue siendo vista de Android y el contenido es un `ComposeView`. Cambios de comportamiento a revisar: el menú contextual es un diálogo (antes un popup junto al dedo); un toque en un .zip abre el diálogo de opciones; la lista ya no usa `RecyclerView`.
+- **Navegador en Compose:** `ui/browser/BrowserScreen.kt` (barra: atrás, adelante, recargar/detener, dirección, cerrar, progreso y accesos rápidos) y `BrowserState.kt`. El `WebView` sigue siendo una vista de Android debajo de la barra (así se conserva al rearmar el cajón). `Browser.kt` mantiene su API (`view`, `webView`, `open`, `onBack`, `detachWebView`, `setBorder`).

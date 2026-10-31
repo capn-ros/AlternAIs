@@ -9,31 +9,21 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
-import android.text.InputType
-import android.view.Gravity
-import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
-import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputMethodManager
 import android.webkit.CookieManager
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.EditText
-import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
-import android.widget.ImageButton
 import android.widget.LinearLayout
-import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.content.res.AppCompatResources
-import androidx.core.graphics.ColorUtils
 import androidx.webkit.ProfileStore
 import androidx.webkit.WebViewCompat
-import com.google.android.material.progressindicator.LinearProgressIndicator
+import app.claudeck.ui.browser.BrowserActions
+import app.claudeck.ui.browser.BrowserState
+import app.claudeck.ui.browser.createBrowserBar
 
 /** Lo que el navegador interno le pide a la pantalla principal. */
 interface BrowserHost {
@@ -60,16 +50,19 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
     val view: LinearLayout = LinearLayout(act)
     val webView: WebView = existing ?: createWebView()
 
-    private val onSurface = host.onSurface()
-    private val muted = ColorUtils.setAlphaComponent(host.onSurface(), 150)
-    private val accent = host.accent()
-    private lateinit var urlField: EditText
-    private lateinit var progress: LinearProgressIndicator
-    private lateinit var backBtn: ImageButton
-    private lateinit var fwdBtn: ImageButton
-    private lateinit var reloadBtn: ImageButton
+    private val state = BrowserState()
     private var loading = false
     private var started = existing != null
+
+    private val actions = object : BrowserActions {
+        override fun back() { if (webView.canGoBack()) webView.goBack() }
+        override fun forward() { if (webView.canGoForward()) webView.goForward() }
+        override fun reloadOrStop() { if (loading) webView.stopLoading() else webView.reload() }
+        override fun go(raw: String) = this@BrowserPanel.go(raw)
+        override fun close() = host.close()
+        override fun downloadSettings() = host.downloadSettings()
+        override fun openExternal() = this@BrowserPanel.openExternal()
+    }
 
     init {
         build()
@@ -132,27 +125,26 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 loading = true
-                if (!urlField.hasFocus()) urlField.setText(url ?: "")
+                if (!state.urlFocused) state.url = url ?: ""
                 syncUi()
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 loading = false
                 remember(url)
-                if (!urlField.hasFocus()) urlField.setText(url ?: "")
+                if (!state.urlFocused) state.url = url ?: ""
                 syncUi()
             }
 
             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                 remember(url)
-                if (!urlField.hasFocus()) urlField.setText(url ?: "")
+                if (!state.urlFocused) state.url = url ?: ""
                 syncUi()
             }
         }
         wv.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                progress.setProgressCompat(newProgress, true)
-                progress.visibility = if (newProgress < 100) View.VISIBLE else View.INVISIBLE
+                state.progress = newProgress
             }
 
             override fun onShowFileChooser(
@@ -191,102 +183,14 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
         view.clipToOutline = true
         view.setPadding(dp(3), dp(10), dp(3), 0) // deja a la vista el borde del cajón a los costados
 
-        // Barra: atrás · adelante · recargar · dirección · cerrar
-        val bar = LinearLayout(act)
-        bar.orientation = LinearLayout.HORIZONTAL
-        bar.gravity = Gravity.CENTER_VERTICAL
-        bar.setPadding(dp(6), 0, dp(6), dp(4))
-        backBtn = iconButton(R.drawable.ic_back, "Atrás") { if (webView.canGoBack()) webView.goBack() }
-        fwdBtn = iconButton(R.drawable.ic_forward, "Adelante") { if (webView.canGoForward()) webView.goForward() }
-        reloadBtn = iconButton(R.drawable.ic_reload, "Recargar") { if (loading) webView.stopLoading() else webView.reload() }
-        bar.addView(backBtn, LinearLayout.LayoutParams(dp(40), dp(44)))
-        bar.addView(fwdBtn, LinearLayout.LayoutParams(dp(40), dp(44)))
-        bar.addView(reloadBtn, LinearLayout.LayoutParams(dp(40), dp(44)))
-
-        urlField = EditText(act)
-        urlField.setSingleLine(true)
-        urlField.textSize = 14f
-        urlField.setTextColor(onSurface)
-        urlField.setHintTextColor(muted)
-        urlField.hint = "Buscá o escribí una dirección"
-        urlField.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-        urlField.imeOptions = EditorInfo.IME_ACTION_GO
-        urlField.setSelectAllOnFocus(true)
-        urlField.setPadding(dp(14), dp(8), dp(14), dp(8))
-        urlField.background = GradientDrawable().apply {
-            cornerRadius = dp(20).toFloat()
-            setColor(ColorUtils.setAlphaComponent(onSurface, 0x14))
-            setStroke(dp(1), ColorUtils.setAlphaComponent(onSurface, 50))
-        }
-        urlField.setOnEditorActionListener { _, actionId, event ->
-            if (actionId == EditorInfo.IME_ACTION_GO || (event != null && event.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)) {
-                go(urlField.text.toString())
-                true
-            } else false
-        }
-        bar.addView(urlField, LinearLayout.LayoutParams(0, dp(40), 1f).apply {
-            marginStart = dp(4)
-            marginEnd = dp(4)
-        })
-        bar.addView(iconButton(R.drawable.ic_close, "Cerrar el navegador") { host.close() }, LinearLayout.LayoutParams(dp(40), dp(44)))
-        view.addView(bar)
-
-        progress = LinearProgressIndicator(act)
-        progress.max = 100
-        progress.setIndicatorColor(accent)
-        progress.visibility = View.INVISIBLE
-        view.addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-
-        // Accesos rápidos
-        val scroll = HorizontalScrollView(act)
-        scroll.isHorizontalScrollBarEnabled = false
-        val chips = LinearLayout(act)
-        chips.orientation = LinearLayout.HORIZONTAL
-        chips.setPadding(dp(12), dp(6), dp(12), dp(6))
-        for ((label, url) in QUICK) chips.addView(chip(label) { go(url) }, chipLp())
-        chips.addView(chip("Dónde guardar") { host.downloadSettings() }, chipLp())
-        chips.addView(chip("Abrir en el navegador del sistema") { openExternal() }, chipLp())
-        scroll.addView(chips, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        view.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        // Barra (Compose): atrás · adelante · recargar · dirección · cerrar, progreso y accesos rápidos.
+        view.addView(
+            createBrowserBar(act, state, actions, host.surface(), host.onSurface(), host.accent()),
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        )
 
         (webView.parent as? ViewGroup)?.removeView(webView)
         view.addView(webView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-    }
-
-    private fun selectableBg(): Int {
-        val tv = android.util.TypedValue()
-        act.theme.resolveAttribute(android.R.attr.selectableItemBackground, tv, true)
-        return tv.resourceId
-    }
-
-    private fun iconButton(icon: Int, desc: String, onClick: () -> Unit): ImageButton {
-        val b = ImageButton(act)
-        b.setImageResource(icon)
-        b.imageTintList = android.content.res.ColorStateList.valueOf(accent)
-        b.setBackgroundResource(selectableBg())
-        b.contentDescription = desc
-        b.setOnClickListener { onClick() }
-        return b
-    }
-
-    private fun chipLp() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-        marginEnd = dp(8)
-    }
-
-    private fun chip(label: String, onClick: () -> Unit): TextView {
-        val tv = TextView(act)
-        tv.text = label
-        tv.textSize = 13f
-        tv.setTextColor(onSurface)
-        tv.gravity = Gravity.CENTER_VERTICAL
-        tv.setPadding(dp(14), dp(7), dp(14), dp(7))
-        tv.background = GradientDrawable().apply {
-            cornerRadius = dp(18).toFloat()
-            setStroke(dp(1), ColorUtils.setAlphaComponent(onSurface, 60))
-            setColor(ColorUtils.setAlphaComponent(accent, 0x1A))
-        }
-        tv.setOnClickListener { onClick() }
-        return tv
     }
 
     /** Guarda la última página para retomarla la próxima vez (solo http y https). */
@@ -294,12 +198,11 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
         if (url != null && BrowserRules.isRememberable(url)) host.saveLastUrl(url)
     }
 
-    /** Habilita/deshabilita atrás y adelante y cambia el ícono de recargar por «detener» mientras carga. */
+    /** Pasa a la barra el estado del historial y si está cargando (cambia recargar por «detener»). */
     private fun syncUi() {
-        backBtn.alpha = BrowserRules.buttonAlpha(webView.canGoBack())
-        fwdBtn.alpha = BrowserRules.buttonAlpha(webView.canGoForward())
-        reloadBtn.setImageResource(if (loading) R.drawable.ic_close else R.drawable.ic_reload)
-        reloadBtn.contentDescription = BrowserRules.reloadDescription(loading)
+        state.canGoBack = webView.canGoBack()
+        state.canGoForward = webView.canGoForward()
+        state.loading = loading
     }
 
     // ---------------------------------------------------------------- Navegación
@@ -314,10 +217,9 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
     }
 
     /** Atrás del navegador; devuelve false si no hay a dónde volver (entonces se cierra el cajón). */
-    fun onBack(): Boolean = when (BrowserRules.back(urlField.hasFocus(), webView.canGoBack())) {
+    fun onBack(): Boolean = when (BrowserRules.back(state.urlFocused, webView.canGoBack())) {
         BrowserBack.LEAVE_FIELD -> {
-            urlField.clearFocus()
-            hideKeyboard()
+            state.clearFocusTick++
             true
         }
         BrowserBack.GO_BACK -> {
@@ -325,11 +227,6 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
             true
         }
         BrowserBack.CLOSE -> false
-    }
-
-    private fun hideKeyboard() {
-        val imm = act.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as InputMethodManager
-        imm.hideSoftInputFromWindow(urlField.windowToken, 0)
     }
 
     /** Dirección → https; texto suelto → búsqueda en DuckDuckGo. Solo http y https. */
@@ -342,8 +239,7 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
             }
             is BrowserInput.Load -> input.url
         }
-        urlField.clearFocus()
-        hideKeyboard()
+        state.clearFocusTick++
         webView.requestFocus()
         webView.loadUrl(url)
     }

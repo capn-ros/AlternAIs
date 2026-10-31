@@ -36,7 +36,7 @@ internal sealed class AccountWebViews
         var wv = new WebView2 { Visibility = Visibility.Collapsed };
         _views[account.Id] = wv;
         _host.Children.Add(wv);
-        var env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(ProfilesDir, account.ProfileName));
+        var env = await CoreWebView2Environment.CreateWithOptionsAsync(null, Path.Combine(ProfilesDir, account.ProfileName), new CoreWebView2EnvironmentOptions());
         await wv.EnsureCoreWebView2Async(env);
         Configure(wv, account.Id, service);
         var start = UrlRestorePolicy.Restorable(service, account.LastUrl) ?? service.StartUrl();
@@ -53,7 +53,7 @@ internal sealed class AccountWebViews
             if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri)) return;
             if (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp) return;
             if (service.OwnsHost(uri.Host.ToLowerInvariant())) core.Navigate(e.Uri);
-            else _ = Launcher.LaunchUriAsync(uri);
+            else { var launch = Launcher.LaunchUriAsync(uri); }
         };
         core.SourceChanged += (_, _) => UrlChanged?.Invoke(id, core.Source);
     }

@@ -162,7 +162,7 @@ public sealed partial class MainWindow
             await Dialogs.Message("Exportar cuentas", "Todavía no hay cuentas para exportar.");
             return;
         }
-        var picker = new FileSavePicker { SuggestedFileName = "alternais-cuentas", SuggestedStartLocation = PickerLocationId.Documents };
+        var picker = new FileSavePicker { SuggestedFileName = "alternais-cuentas", SuggestedStartLocation = PickerLocationId.DocumentsLibrary };
         picker.FileTypeChoices.Add("Archivo JSON", new List<string> { ".json" });
         InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
         var file = await picker.PickSaveFileAsync();
@@ -181,7 +181,7 @@ public sealed partial class MainWindow
 
     private async Task ImportAsync()
     {
-        var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.Documents };
+        var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.DocumentsLibrary };
         picker.FileTypeFilter.Add(".json");
         InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
         var file = await picker.PickSingleFileAsync();
@@ -347,7 +347,7 @@ public sealed partial class MainWindow
     {
         try
         {
-            var env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(Web.AccountWebViews.ProfilesDir, "browser"));
+            var env = await CoreWebView2Environment.CreateWithOptionsAsync(null, Path.Combine(Web.AccountWebViews.ProfilesDir, "browser"), new CoreWebView2EnvironmentOptions());
             await wv.EnsureCoreWebView2Async(env);
             wv.CoreWebView2.SourceChanged += (_, _) =>
             {

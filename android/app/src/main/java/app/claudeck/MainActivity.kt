@@ -204,6 +204,15 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var store: AccountStore
     private val accounts = mutableListOf<Account>()
+
+    /** Cambia una cuenta por id (las cuentas son inmutables) y devuelve la versión nueva. No guarda: hacelo con store.save/onAccountsChanged. */
+    private fun updateAcc(id: String, change: (Account) -> Account): Account? {
+        val i = accounts.indexOfFirst { it.id == id }
+        if (i < 0) return null
+        val n = change(accounts[i])
+        accounts[i] = n
+        return n
+    }
     private val webViews = HashMap<String, WebView>()
     private val chips = HashMap<String, AccountAvatarView>()
     private val failed = HashSet<String>()
@@ -591,9 +600,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun sendNow(acc: Account, text: String) {
         if (text.isEmpty()) return
-        acc.autoReply = text.take(4000)
+        val updated = updateAcc(acc.id) { it.copy(autoReply = text.take(4000)) } ?: return
         store.save(accounts)
-        enqueueAutoReply(acc)
+        enqueueAutoReply(updated)
     }
 
     override fun onResume() {
@@ -1760,10 +1769,11 @@ class MainActivity : AppCompatActivity() {
     private fun tick() {
         val now = System.currentTimeMillis()
         var changed = false
-        accounts.forEach { a ->
-            if (a.limitUntil in 1L..now) {
-                a.limitUntil = 0L
-                a.limitStart = 0L
+        for (i in accounts.indices) {
+            val old = accounts[i]
+            if (old.limitUntil in 1L..now) {
+                val a = old.copy(limitUntil = 0L, limitStart = 0L)
+                accounts[i] = a
                 changed = true
                 if (a.autoReply.isEmpty()) snack("«${a.name}» ya puede usarse de nuevo", "Responder") { quickReply(a) }
                 else Toast.makeText(this, "«${a.name}» ya puede usarse de nuevo", Toast.LENGTH_LONG).show()
@@ -1841,7 +1851,7 @@ class MainActivity : AppCompatActivity() {
         val safeUrl = urlForRestore(store.service, url) ?: return
         val acc = accounts.firstOrNull { it.id == id } ?: return
         if (acc.lastUrl == safeUrl) return
-        acc.lastUrl = safeUrl
+        updateAcc(id) { it.copy(lastUrl = safeUrl) }
         store.save(accounts)
     }
 
@@ -2218,11 +2228,9 @@ class MainActivity : AppCompatActivity() {
                 select(acc.id)
                 maybeSuggestBubble()
             } else {
-                val existing = accounts.firstOrNull { it.id == accountId } ?: return
-                existing.name = data.name
-                existing.purpose = data.purpose
-                existing.email = data.email
-                existing.color = data.color
+                val existing = updateAcc(accountId) {
+                    it.copy(name = data.name, purpose = data.purpose, email = data.email, color = data.color)
+                } ?: return
                 onAccountsChanged()
                 rebuildChips()
                 updateInfo()
@@ -2815,9 +2823,13 @@ class MainActivity : AppCompatActivity() {
     private fun setLimit(acc: Account, until: Long) {
         // El aviso de fin de descanso es una notificación: pide el permiso la primera vez.
         if (until > 0L) askNotificationPermissionThen { }
-        acc.limitUntil = until
-        acc.limitStart = if (until > 0L) System.currentTimeMillis() else 0L
-        if (until <= 0L) acc.autoReply = ""
+        val upd = updateAcc(acc.id) {
+            it.copy(
+                limitUntil = until,
+                limitStart = if (until > 0L) System.currentTimeMillis() else 0L,
+                autoReply = if (until <= 0L) "" else it.autoReply
+            )
+        } ?: return
         onAccountsChanged()
         refreshChipTexts()
         updateInfo()
@@ -2825,7 +2837,7 @@ class MainActivity : AppCompatActivity() {
             val alt = accounts.firstOrNull { it.id != acc.id && !it.limitActive() }
             if (alt != null) snack("«${acc.name}» en descanso", "Ir a «${alt.name}»") { select(alt.id) }
         }
-        if (until > 0L) askAutoReply(acc)
+        if (until > 0L) askAutoReply(upd)
     }
 
     // ---------------------------------------------------------------- Respuesta automática
@@ -2874,7 +2886,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setAutoReply(acc: Account, text: String) {
-        acc.autoReply = text.take(4000)
+        updateAcc(acc.id) { it.copy(autoReply = text.take(4000)) }
         store.save(accounts)
         snack(if (text.isEmpty()) "Sin respuesta automática" else "Se enviará sola «${text.take(40)}» al terminar el descanso, sin abrir la app")
     }
@@ -2899,7 +2911,7 @@ class MainActivity : AppCompatActivity() {
         }
         autoBusy = true
         val text = acc.autoReply
-        acc.autoReply = "" // se limpia antes de enviar: nunca se manda dos veces
+        updateAcc(acc.id) { it.copy(autoReply = "") } // se limpia antes de enviar: nunca se manda dos veces
         store.save(accounts)
         select(acc.id)
         reloadWithLogo(acc.id)
