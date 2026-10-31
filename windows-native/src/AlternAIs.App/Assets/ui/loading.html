@@ -1,0 +1,19 @@
+<!doctype html>
+<!-- Logo en bucle mientras carga una cuenta (mismo splash.js que la animación de arranque). -->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1c1917; }
+  #loop { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+  .splash-svg { width: min(40vh, 40vw, 320px); height: auto; overflow: visible; }
+</style>
+</head>
+<body>
+<div id="loop" aria-hidden="true"></div>
+<script src="splash.js"></script>
+<script>
+  window.AlternLogo.mount(document.getElementById('loop'), { loop: true });
+</script>
+</body>
+</html>

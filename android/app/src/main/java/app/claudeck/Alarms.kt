@@ -12,19 +12,15 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import app.claudeck.domain.usecase.AlarmAction
+import app.claudeck.domain.usecase.AlarmCandidate
+import app.claudeck.domain.usecase.AlarmDispatch
+import app.claudeck.domain.usecase.AlarmPlan
+import app.claudeck.domain.usecase.LimitNotificationText
+import app.claudeck.domain.usecase.ReplyText
 
 /** "faltan 2 h 10 min", "3 d 4 h", "12 min" (mínimo 1 min). */
-internal fun formatRemaining(ms: Long): String {
-    val totalMin = (ms / 60_000L).coerceAtLeast(1L)
-    val days = totalMin / (60 * 24)
-    val hours = (totalMin % (60 * 24)) / 60
-    val mins = totalMin % 60
-    return when {
-        days > 0 -> "$days d $hours h"
-        hours > 0 -> "$hours h $mins min"
-        else -> "$mins min"
-    }
-}
+internal fun formatRemaining(ms: Long): String = app.claudeck.domain.usecase.RemainingTime.format(ms)
 
 /**
  * Alarma por cada cuenta en descanso: cuando termina el plazo suena un aviso (aunque la app esté cerrada).
@@ -58,19 +54,17 @@ object LimitAlarms {
             val store = AccountStore(app)
             val now = System.currentTimeMillis()
             val ids = HashSet<String>()
-            for (svc in Service.values()) {
-                for (a in store.loadFor(svc)) {
-                    if (a.limitUntil <= now) continue
-                    val pi = pending(app, a.id, a.name, PendingIntent.FLAG_UPDATE_CURRENT) ?: continue
-                    val exact = Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()
-                    try {
-                        if (exact) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, a.limitUntil, pi)
-                        else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, a.limitUntil, pi)
-                    } catch (_: SecurityException) {
-                        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, a.limitUntil, pi)
-                    }
-                    ids.add(a.id)
+            val candidates = Service.values().flatMap { svc -> store.loadFor(svc).map { AlarmCandidate(it.id, it.name, it.limitUntil) } }
+            for (a in AlarmPlan.schedule(candidates, now)) {
+                val pi = pending(app, a.id, a.name, PendingIntent.FLAG_UPDATE_CURRENT) ?: continue
+                val exact = Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()
+                try {
+                    if (exact) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, a.at, pi)
+                    else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, a.at, pi)
+                } catch (_: SecurityException) {
+                    am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, a.at, pi)
                 }
+                ids.add(a.id)
             }
             prefs.edit().putStringSet(PREF_IDS, ids).apply()
         } catch (_: Exception) {
@@ -125,21 +119,16 @@ object LimitAlarms {
      */
     internal fun notifyDone(ctx: Context, id: String, name: String, auto: Boolean = false, started: Boolean = true) {
         val nm = channel(ctx) ?: return
-        val text = when {
-            auto && started -> "Terminó el descanso. Enviando el mensaje automático…"
-            auto -> "Terminó el descanso. Abrí la app para que se envíe el mensaje automático."
-            else -> "Terminó el descanso por límite de uso. Podés responder desde acá."
-        }
         val b = NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.ic_bubble)
-            .setContentTitle("«$name» ya puede usarse")
-            .setContentText(text)
+            .setContentTitle(LimitNotificationText.doneTitle(name))
+            .setContentText(LimitNotificationText.doneText(auto, started))
             .setContentIntent(openIntent(ctx, id, false, id.hashCode()))
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setDefaults(Notification.DEFAULT_ALL)
-        if (!auto) addReplyActions(ctx, b, id)
+        if (LimitNotificationText.offersReply(auto)) addReplyActions(ctx, b, id)
         post(ctx, id, nm, b.build())
     }
 
@@ -152,22 +141,19 @@ object LimitAlarms {
                 .build()
         )
         val snips = try { AccountStore(ctx).snippets } catch (_: Exception) { emptyList() }
-        snips.take(2).forEachIndexed { k, s ->
-            if (s.isBlank()) return@forEachIndexed
-            val label = if (s.length > 22) s.take(22) + "…" else s
-            b.addAction(R.drawable.ic_message, label, replyIntent(ctx, id, s, id.hashCode() + 2 + k))
+        LimitNotificationText.snippetActions(snips).forEach { a ->
+            b.addAction(R.drawable.ic_message, a.label, replyIntent(ctx, id, a.text, id.hashCode() + 2 + a.slot))
         }
     }
 
     /** Resultado del mensaje automático: se envió o falló (reemplaza al aviso de fin de descanso). */
     internal fun notifyResult(ctx: Context, id: String, name: String, ok: Boolean, text: String) {
         val nm = channel(ctx) ?: return
-        val short = if (text.length > 80) text.take(80) + "…" else text
         val b = NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.ic_bubble)
-            .setContentTitle(if (ok) "Mensaje enviado a «$name»" else "No se pudo enviar el mensaje a «$name»")
-            .setContentText(if (ok) "«$short»" else "Copié el mensaje: abrí la cuenta y pegalo. «$short»")
-            .setStyle(NotificationCompat.BigTextStyle().bigText(if (ok) "«$text»" else "Copié el mensaje al portapapeles: abrí la cuenta y pegalo.\n«$text»"))
+            .setContentTitle(LimitNotificationText.resultTitle(name, ok))
+            .setContentText(LimitNotificationText.resultText(text, ok))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(LimitNotificationText.resultBigText(text, ok)))
             .setContentIntent(openIntent(ctx, id, false, id.hashCode()))
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -183,9 +169,10 @@ class LimitAlarmReceiver : BroadcastReceiver() {
         val name = intent.getStringExtra("name") ?: "Cuenta"
         val auto = Service.values().any { svc -> AccountStore(context).loadFor(svc).any { it.id == id && it.autoReply.isNotEmpty() } }
         // Con la app abierta se ocupa ella; si está cerrada, un servicio manda el mensaje en segundo plano.
-        var started = true
-        if (auto && !MainActivity.alive) started = AutoReplyService.start(context, id, null)
-        LimitAlarms.notifyDone(context, id, name, auto, started || MainActivity.alive)
+        val action = AlarmDispatch.decide(auto, MainActivity.alive)
+        var serviceStarted = true
+        if (action == AlarmAction.SEND_IN_BACKGROUND) serviceStarted = AutoReplyService.start(context, id, null)
+        LimitAlarms.notifyDone(context, id, name, auto, AlarmDispatch.sendStarted(action, serviceStarted))
         BubbleService.refresh()
     }
 }
@@ -202,11 +189,10 @@ class ReplyReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getStringExtra("id") ?: return
         val typed = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(LimitAlarms.KEY_REPLY)?.toString()
-        val text = (typed ?: intent.getStringExtra("text")).orEmpty().trim()
-        if (text.isEmpty()) return
+        val text = ReplyText.resolve(typed, intent.getStringExtra("text")) ?: return
         val nm = context.getSystemService(NotificationManager::class.java)
         nm?.cancel(("limit" + id).hashCode())
-        if (MainActivity.alive) {
+        if (ReplyText.sendInApp(MainActivity.alive)) {
             // App abierta: usa su propio chat.
             context.startActivity(
                 Intent(context, MainActivity::class.java)

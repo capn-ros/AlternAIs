@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>AlternAIs.Application</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\AlternAIs.Domain\AlternAIs.Domain.csproj" />
+  </ItemGroup>
+</Project>

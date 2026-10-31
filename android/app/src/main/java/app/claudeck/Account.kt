@@ -2,9 +2,10 @@ package app.claudeck
 
 import android.content.Context
 import android.net.Uri
+import app.claudeck.data.AccountJson
+import app.claudeck.domain.model.AiService
+import app.claudeck.domain.policy.UrlRestorePolicy
 import org.json.JSONArray
-import org.json.JSONObject
-import java.util.UUID
 
 /** Cada servicio es una "mitad" de la app: sitio propio y cuentas propias (guardadas por separado). */
 enum class Service(
@@ -28,66 +29,20 @@ enum class Service(
 }
 
 /** Solo se restaura una URL HTTPS del sitio del servicio; nunca un destino externo guardado en el estado. */
-internal fun urlForRestore(service: Service, raw: String?): String? {
-    val value = raw?.takeIf { it.isNotBlank() && it.length <= 4096 } ?: return null
-    return try {
-        val uri = Uri.parse(value)
-        val host = uri.host?.lowercase() ?: return null
-        if (
-            uri.scheme?.equals("https", ignoreCase = true) != true ||
-            service.hosts.none { h -> host == h || host.endsWith(".$h") } ||
-            uri.userInfo != null ||
-            (uri.port != -1 && uri.port != 443)
-        ) null else uri.buildUpon().clearQuery().fragment(null).build().toString()
-    } catch (_: Exception) {
-        null
-    }
-}
+internal fun urlForRestore(service: Service, raw: String?): String? =
+    UrlRestorePolicy.restorable(AiService.fromKey(service.key), raw)
 
 /** Compatibilidad: restauración para claude.ai. */
 internal fun claudeUrlForRestore(raw: String?): String? = urlForRestore(Service.CLAUDE, raw)
 
-data class Account(
-    val id: String,
-    var name: String,
-    var purpose: String,
-    var color: Int,
-    /** Momento (epoch ms) hasta el que la cuenta está "descansando" por límite de uso. 0 = disponible. */
-    var limitUntil: Long = 0L,
-    /** Momento (epoch ms) en que se marcó el límite; sirve para calcular qué parte del descanso ya pasó. 0 = no se sabe. */
-    var limitStart: Long = 0L,
-    /** Última pantalla de Claude visitada; solo se restaura si sigue siendo un URL HTTPS de claude.ai. */
-    var lastUrl: String = "",
-    /** Correo con el que se inicia sesión (opcional, sin contraseña); sirve para recordarlo y exportarlo. */
-    var email: String = "",
-    /** Mensaje que se escribe y se envía solo en el chat cuando termina el descanso ("" = ninguno). */
-    var autoReply: String = ""
-) {
-    /** Cada cuenta usa un perfil de WebView propio: cookies y datos totalmente separados. */
-    val profileName: String get() = "acc_$id"
+/** La pantalla usa la misma cuenta inmutable del dominio; los cambios se hacen con `copy`. */
+typealias Account = app.claudeck.domain.model.Account
 
-    fun limitActive(now: Long = System.currentTimeMillis()): Boolean = limitUntil > now
+/** ¿La cuenta está en descanso ahora? (atajo con la hora actual por defecto) */
+fun Account.limitActive(now: Long = System.currentTimeMillis()): Boolean = isResting(now)
 
-    /**
-     * Qué fracción del descanso falta (1 = recién marcado, 0 = terminó). Si la marca es vieja y no
-     * tiene inicio guardado, se supone el plazo estándar más cercano (5 h, 24 h, 7 d o 30 d).
-     */
-    fun limitFraction(now: Long = System.currentTimeMillis()): Float {
-        if (!limitActive(now)) return 0f
-        val remaining = limitUntil - now
-        val total = if (limitStart in 1 until limitUntil) {
-            limitUntil - limitStart
-        } else {
-            val h = 3_600_000L
-            listOf(5 * h, 24 * h, 7 * 24 * h, 30 * 24 * h).firstOrNull { it >= remaining } ?: remaining
-        }
-        return (remaining.toFloat() / total.toFloat()).coerceIn(0f, 1f)
-    }
-
-    companion object {
-        fun newId(): String = UUID.randomUUID().toString().replace("-", "").take(12)
-    }
-}
+/** Fracción del descanso que falta, con la hora actual por defecto. */
+fun Account.limitFraction(): Float = limitFraction(System.currentTimeMillis())
 
 /**
  * Persistencia en SharedPreferences("claudeck"). La comparten la Activity y el servicio de la
@@ -133,48 +88,14 @@ class AccountStore(context: Context) {
     fun load(): List<Account> = loadFor(service)
 
     /** Cuentas de un servicio concreto (sirve para exportar las dos mitades). */
-    fun loadFor(svc: Service): List<Account> {
-        val raw = prefs.getString(accountsKey(svc), null) ?: return emptyList()
-        return try {
-            val arr = JSONArray(raw)
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                Account(
-                    id = o.getString("id"),
-                    name = o.getString("name"),
-                    purpose = o.optString("purpose", ""),
-                    color = o.getInt("color"),
-                    limitUntil = o.optLong("limitUntil", 0L),
-                    limitStart = o.optLong("limitStart", 0L),
-                    lastUrl = urlForRestore(svc, o.optString("lastUrl", "")) ?: "",
-                    email = o.optString("email", ""),
-                    autoReply = o.optString("autoReply", "")
-                )
-            }
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
+    fun loadFor(svc: Service): List<Account> =
+        AccountJson.decode(AiService.fromKey(svc.key), prefs.getString(accountsKey(svc), null))
 
     fun save(list: List<Account>) = saveFor(service, list)
 
     fun saveFor(svc: Service, list: List<Account>) {
-        val arr = JSONArray()
-        list.forEach { a ->
-            arr.put(
-                JSONObject()
-                    .put("id", a.id)
-                    .put("name", a.name)
-                    .put("purpose", a.purpose)
-                    .put("color", a.color)
-                    .put("limitUntil", a.limitUntil)
-                    .put("limitStart", a.limitStart)
-                    .put("lastUrl", urlForRestore(svc, a.lastUrl) ?: "")
-                    .put("email", a.email)
-                    .put("autoReply", a.autoReply)
-            )
-        }
-        prefs.edit().putString(accountsKey(svc), arr.toString()).apply()
+        val raw = AccountJson.encode(AiService.fromKey(svc.key), list)
+        prefs.edit().putString(accountsKey(svc), raw).apply()
         // Cada vez que cambian las cuentas se reprograman las alarmas de fin de descanso.
         LimitAlarms.reschedule(appContext)
     }

@@ -1,0 +1,226 @@
+# Copia del workflow principal. Pegala a mano en .github/workflows/cd.yml (cd.zip no puede cambiar workflows).
+# Novedad: el job «windows» compila la versión NATIVA (tests + dotnet publish + Inno Setup → artifact AlternAIs-Windows);
+# la versión Electron sigue como respaldo en «windows-electron» (artifact Claudeck-Windows-Electron).
+
+name: Compilar desde cd.zip
+
+# Al subir (o reemplazar) cd.zip en la raíz del repo:
+# 1) borra el contenido del repo (menos .git, cd.zip y .github), descomprime cd.zip
+#    y COMMITEA los archivos descomprimidos en el repo;
+# 2) compila Android, Windows nativo (WinUI 3) y, de respaldo, Windows Electron desde lo que quedó en el repo.
+# Los resultados quedan en Artifacts: Claudeck-Android (APK), AlternAIs-Windows (instalador nativo),
+# Claudeck-Windows-Electron (instalador viejo) y los reportes Tests-Android / Tests-Windows.
+# Ojo: GitHub no deja que Actions modifique .github/workflows, así que los workflows
+# del zip se ignoran: los que valen son los que ya están en el repo.
+on:
+  push:
+    paths:
+      - "cd.zip"
+  workflow_dispatch:
+
+jobs:
+  extract:
+    name: Descomprimir cd.zip en el repo
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Descomprimir y commitear
+        shell: bash
+        run: |
+          set -e
+          [ -f cd.zip ] || { echo "No existe cd.zip en la raíz del repo"; exit 1; }
+          tmp="$RUNNER_TEMP/cdx"
+          rm -rf "$tmp"; mkdir -p "$tmp"
+          unzip -q cd.zip -d "$tmp"
+          rm -rf "$tmp/__MACOSX"
+          src="$tmp"
+          # Si el zip trae una sola carpeta en la raíz, entrar en ella
+          if [ ! -d "$src/android" ] && [ "$(ls -A "$src" | wc -l)" = "1" ] && [ -d "$src/$(ls -A "$src")" ]; then
+            src="$src/$(ls -A "$src")"
+          fi
+          [ -d "$src/android" ] || { echo "cd.zip debe traer la carpeta android/ en su raíz"; exit 1; }
+          # Borra todo menos .git, cd.zip y .github (los workflows no se pueden tocar desde Actions)
+          find . -mindepth 1 -maxdepth 1 ! -name .git ! -name cd.zip ! -name .github -exec rm -rf {} +
+          (cd "$src" && tar cf - --exclude='./.github' .) | tar xf -
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "El repo ya tenía exactamente estos archivos"
+          else
+            git commit -q -m "Descomprimir cd.zip (compilación ${{ github.run_number }})"
+            git push
+          fi
+
+  android:
+    name: Android
+    needs: extract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Tests unitarios
+        working-directory: android
+        continue-on-error: true
+        run: gradle testDebugUnitTest --no-daemon
+
+      - name: Subir reporte de tests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tests-Android
+          path: android/app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Compilar APK
+        working-directory: android
+        run: gradle assembleRelease --no-daemon
+
+      - name: Renombrar APK
+        working-directory: android
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/release/app-release.apk "out/Claudeck-${{ github.run_number }}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Claudeck-Android
+          path: android/out/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    name: Windows (nativo, WinUI 3)
+    needs: extract
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Tests del dominio
+        continue-on-error: true
+        run: dotnet test windows-native/tests/AlternAIs.Domain.Tests --logger "trx;LogFileName=domain.trx" --logger "console;verbosity=normal"
+
+      - name: Tests de aplicación e infraestructura
+        continue-on-error: true
+        run: dotnet test windows-native/tests/AlternAIs.Application.Tests --logger "trx;LogFileName=application.trx" --logger "console;verbosity=normal"
+
+      - name: Subir reporte de tests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tests-Windows
+          path: windows-native/tests/**/TestResults
+          retention-days: 7
+
+      - name: Compilar y publicar la app (WinUI 3, autocontenida)
+        run: >
+          dotnet publish windows-native/src/AlternAIs.App/AlternAIs.App.csproj
+          -c Release -r win-x64 -p:Platform=x64 -p:Version=1.0.${{ github.run_number }}
+          -o windows-native/publish
+
+      - name: Instalador (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          & $iscc "/DAppVersion=1.0.${{ github.run_number }}" windows-native\installer\alternais.iss
+          if ($LASTEXITCODE -ne 0) { throw "Falló Inno Setup" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AlternAIs-Windows
+          path: windows-native/dist/AlternAIs-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  # Versión vieja (Electron), de respaldo hasta que se pruebe la nativa en una PC. Mismo instalador
+  # (mismo AppId): se instala una u otra, no las dos. Cuando la nativa esté confirmada, borrar este job,
+  # sacarlo de «needs» de limpiar y borrar la carpeta windows/.
+  windows-electron:
+    name: Windows (Electron, respaldo)
+    needs: extract
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Versión según el número de compilación
+        shell: bash
+        working-directory: windows
+        run: npm version "1.0.${{ github.run_number }}" --no-git-tag-version
+
+      - name: Instalar dependencias
+        shell: bash
+        working-directory: windows
+        run: npm install
+
+      - name: Compilar app (solo la carpeta, sin portable)
+        shell: bash
+        working-directory: windows
+        run: npx electron-builder --win dir --x64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Instalador (Inno Setup)
+        shell: pwsh
+        working-directory: windows
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          & $iscc "/DAppVersion=1.0.${{ github.run_number }}" installer\claudeck.iss
+          if ($LASTEXITCODE -ne 0) { throw "Falló Inno Setup" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Claudeck-Windows-Electron
+          path: windows/dist/AlternAIs-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  limpiar:
+    name: Borrar artifacts anteriores
+    needs: [android, windows, windows-electron]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Borrar artifacts anteriores
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/${{ github.repository }}/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.workflow_run.id != ${{ github.run_id }}) | .id' |
+          while read -r id; do
+            gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" || true
+          done

@@ -40,11 +40,13 @@ import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import kotlin.math.abs
+import app.claudeck.domain.usecase.BubbleAccount
+import app.claudeck.domain.usecase.BubbleLayout
+import app.claudeck.domain.usecase.BubbleStatus
 
 /**
  * Burbuja flotante (overlay "sobre otras apps") para cambiar de cuenta desde cualquier lado.
- * Tocar la burbuja despliega la lista de cuentas; tocar una trae Alterna al frente en esa cuenta.
+ * Tocar la burbuja despliega la lista de cuentas; tocar una trae AlternAIs al frente en esa cuenta.
  * Se arrastra y se pega al borde más cercano. Es un servicio en primer plano para que Android
  * no lo mate. Requiere el permiso "Mostrar sobre otras apps" (SYSTEM_ALERT_WINDOW).
  */
@@ -136,8 +138,9 @@ class BubbleService : Service() {
         super.onConfigurationChanged(newConfig)
         if (root == null) return
         val (sw, sh) = screenSize()
-        hx = hx.coerceIn(0, maxOf(0, sw - headSize))
-        hy = hy.coerceIn(0, maxOf(0, sh - headSize))
+        val p = BubbleLayout.clampHead(hx, hy, sw, sh, headSize)
+        hx = p.x
+        hy = p.y
         collapse(false)
     }
 
@@ -189,10 +192,9 @@ class BubbleService : Service() {
 
     private fun createBubble() {
         val (sw, sh) = screenSize()
-        hx = if (store.bubbleX >= 0) store.bubbleX else sw - headSize - dp(4)
-        hy = if (store.bubbleY >= 0) store.bubbleY else sh / 3
-        hx = hx.coerceIn(0, maxOf(0, sw - headSize))
-        hy = hy.coerceIn(0, maxOf(0, sh - headSize))
+        val start = BubbleLayout.initialHead(store.bubbleX, store.bubbleY, sw, sh, headSize, dp(4))
+        hx = start.x
+        hy = start.y
 
         head = ImageView(this)
         head.scaleType = ImageView.ScaleType.FIT_XY
@@ -268,6 +270,8 @@ class BubbleService : Service() {
     fun refreshHead() {
         if (root == null) return
         val list = store.load()
+        val now = System.currentTimeMillis()
+        val badge = BubbleStatus.badgeColor(list.map { it.toBubble() }, now)
         val size = headSize
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
@@ -279,15 +283,15 @@ class BubbleService : Service() {
             it.draw(c)
         }
         c.restore()
-        if (list.isNotEmpty()) {
-            val free = list.count { !it.limitActive() }
+        if (badge != null) {
+            val free = BubbleStatus.freeCount(list.map { it.toBubble() }, now)
             val r = size * 0.24f
             val cx = size - r
             val cy = size - r
             val p = Paint(Paint.ANTI_ALIAS_FLAG)
             p.color = Color.parseColor("#1C1917")
             c.drawCircle(cx, cy, r + dp(1.5f), p)
-            p.color = Color.parseColor(if (free > 0) "#3DA35D" else "#D64545")
+            p.color = Color.parseColor(badge)
             c.drawCircle(cx, cy, r, p)
             p.color = Color.WHITE
             p.textAlign = Paint.Align.CENTER
@@ -313,15 +317,15 @@ class BubbleService : Service() {
 
     private val rowLabels = mutableListOf<Pair<Account, TextView>>()
 
-    private fun labelFor(acc: Account): String =
-        if (acc.limitActive()) "${acc.name} · ⏳ ${formatRemaining(acc.limitUntil - System.currentTimeMillis())}"
-        else "${acc.name} · Disponible"
+    private fun Account.toBubble() = BubbleAccount(id, name, limitUntil)
+
+    private fun labelFor(acc: Account): String = BubbleStatus.label(acc.toBubble(), System.currentTimeMillis())
 
     private fun updateRowLabels() {
         if (!expanded) return
         rowLabels.forEach { (acc, tv) ->
             tv.text = labelFor(acc)
-            tv.setTextColor(if (acc.limitActive()) Color.parseColor("#F2A33A") else Color.WHITE)
+            tv.setTextColor(Color.parseColor(BubbleStatus.labelColor(acc.toBubble(), System.currentTimeMillis())))
         }
     }
 
@@ -348,14 +352,15 @@ class BubbleService : Service() {
                 MotionEvent.ACTION_MOVE -> {
                     val dx = e.rawX - downX
                     val dy = e.rawY - downY
-                    if (!dragging && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
+                    if (!dragging && BubbleLayout.isDrag(dx, dy, touchSlop)) {
                         dragging = true
                         if (expanded) collapse(false)
                     }
                     if (dragging) {
                         val (sw, sh) = screenSize()
-                        hx = (startHx + dx.toInt()).coerceIn(0, maxOf(0, sw - headSize))
-                        hy = (startHy + dy.toInt()).coerceIn(0, maxOf(0, sh - headSize))
+                        val p = BubbleLayout.clampHead(startHx + dx.toInt(), startHy + dy.toInt(), sw, sh, headSize)
+                        hx = p.x
+                        hy = p.y
                         applyCollapsedPosition()
                     }
                     return true
@@ -377,8 +382,7 @@ class BubbleService : Service() {
 
     private fun snapToEdge() {
         val (sw, _) = screenSize()
-        val margin = dp(4)
-        val target = if (hx + headSize / 2 < sw / 2) margin else sw - headSize - margin
+        val target = BubbleLayout.snapTargetX(hx, sw, headSize, dp(4))
         val anim = ValueAnimator.ofInt(hx, target)
         anim.duration = 220
         anim.interpolator = DecelerateInterpolator()
@@ -406,8 +410,9 @@ class BubbleService : Service() {
         }
         expanded = true
         val (sw, sh) = screenSize()
-        val right = hx + headSize / 2 > sw / 2
-        val above = hy + headSize / 2 > sh / 2
+        val side = BubbleLayout.expansion(hx, hy, sw, sh, headSize)
+        val right = side.right
+        val above = side.above
         val g = if (right) Gravity.END else Gravity.START
 
         listTop.removeAllViews()
@@ -417,7 +422,7 @@ class BubbleService : Service() {
 
         val rows = mutableListOf<LinearLayout>()
         accounts.forEach { acc ->
-            val current = acc.id == (store.selectedId ?: accounts.first().id)
+            val current = acc.id == BubbleStatus.currentId(accounts.map { it.toBubble() }, store.selectedId)
             val bmp = Ui.avatar(acc.color, Ui.initial(acc.name), dp(44), ring = current, resting = acc.limitActive())
             val row = buildRow(labelFor(acc), bmp, right) { switchTo(acc.id) }
             (row.getChildAt(if (right) 0 else 1) as? TextView)?.let { rowLabels.add(acc to it) }
@@ -425,7 +430,7 @@ class BubbleService : Service() {
         }
         val hide = buildRow("Ocultar burbuja", Ui.avatar(Color.parseColor("#4A4A4A"), "✕", dp(44)), right) { hideBubble() }
         // La fila "ocultar" va lo más lejos posible de la cabeza para no tocarla sin querer.
-        val ordered = if (above) listOf(hide) + rows else rows + hide
+        val ordered = BubbleLayout.orderRows(rows, hide, above)
         ordered.forEach { target.addView(it) }
 
         updateRowLabels()
@@ -441,15 +446,16 @@ class BubbleService : Service() {
         )
         val w = r.measuredWidth
         val h = r.measuredHeight
-        lp.x = (if (right) hx + headSize + pad - w else hx - pad).coerceIn(0, maxOf(0, sw - w))
-        lp.y = (if (above) hy + headSize + pad - h else hy - pad).coerceIn(0, maxOf(0, sh - h))
+        val corner = BubbleLayout.expandedWindow(hx, hy, headSize, pad, w, h, sw, sh, side)
+        lp.x = corner.x
+        lp.y = corner.y
         try {
             wm.updateViewLayout(r, lp)
         } catch (_: Exception) {
         }
 
         // Animación en cascada, desde la fila más cercana a la cabeza hacia afuera.
-        val nearestFirst = if (above) ordered.reversed() else ordered
+        val nearestFirst = BubbleLayout.animationOrder(ordered, above)
         nearestFirst.forEachIndexed { i, row ->
             row.alpha = 0f
             row.scaleX = 0.6f
@@ -561,7 +567,7 @@ class BubbleService : Service() {
         try {
             startActivity(i)
         } catch (e: Exception) {
-            Toast.makeText(this, "Abrí Alterna para cambiar de cuenta", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Abrí AlternAIs para cambiar de cuenta", Toast.LENGTH_LONG).show()
         }
     }
 }

@@ -1,5 +1,37 @@
 package app.claudeck
 
+import androidx.activity.viewModels
+import app.claudeck.domain.model.AiService
+import app.claudeck.domain.model.AccountPalette
+import app.claudeck.domain.policy.EmailPolicy
+import app.claudeck.domain.usecase.AccountFormResult
+import app.claudeck.domain.policy.AccountInitial
+import app.claudeck.domain.usecase.AccountMenuAction
+import app.claudeck.domain.usecase.DockGesture
+import app.claudeck.domain.usecase.DockGestures
+import app.claudeck.ui.dock.AccountAvatarView
+import app.claudeck.ui.dock.AddAccountButtonView
+import app.claudeck.ui.dock.TimeBarView
+import app.claudeck.ui.dock.AvatarState
+import app.claudeck.domain.usecase.AccountNavigation
+import app.claudeck.domain.usecase.DockPolicy
+import app.claudeck.domain.usecase.AccountStatusText
+import app.claudeck.domain.usecase.BuildAccountMenu
+import app.claudeck.ui.accountmenu.AccountMenuActions
+import app.claudeck.ui.accountmenu.AccountMenuViewModel
+import app.claudeck.ui.accountmenu.createAccountMenuHost
+import app.claudeck.ui.account.AccountForm
+import app.claudeck.ui.account.AccountFormActions
+import app.claudeck.ui.account.AccountFormViewModel
+import app.claudeck.ui.account.createAccountFormHost
+import app.claudeck.ui.limits.LimitActions
+import app.claudeck.ui.limits.LimitViewModel
+import app.claudeck.ui.limits.createLimitHost
+import app.claudeck.ui.settings.SettingsActions
+import app.claudeck.ui.settings.SettingsViewModel
+import app.claudeck.ui.settings.createSettingsView
+import app.claudeck.ui.snippets.SnippetsViewModel
+import dagger.hilt.android.AndroidEntryPoint
 import android.Manifest
 import android.animation.ArgbEvaluator
 import android.animation.ValueAnimator
@@ -77,7 +109,6 @@ import androidx.webkit.ProfileStore
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
-import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.color.MaterialColors
@@ -97,7 +128,26 @@ import java.io.File
 import java.util.Calendar
 import kotlin.math.abs
 
+@AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
+
+    /** Ajustes en Compose: su estado vive en el ViewModel y se actualiza solo con lo guardado. */
+    private val settingsVm: SettingsViewModel by viewModels()
+
+    /** Mensajes guardados en Compose: la lista vive en el ViewModel y se actualiza sola. */
+    private val snippetsVm: SnippetsViewModel by viewModels()
+
+    /** Diálogos de «marcar límite» en Compose: el estado de cuál está abierto vive en el ViewModel. */
+    private val limitVm: LimitViewModel by viewModels()
+    private var limitHost: android.view.View? = null
+
+    /** Formulario de cuenta (nueva/editar) en Compose. */
+    private val accountFormVm: AccountFormViewModel by viewModels()
+    private var accountFormHost: android.view.View? = null
+
+    /** Menú de cuenta (hoja inferior) en Compose. */
+    private val accountMenuVm: AccountMenuViewModel by viewModels()
+    private var accountMenuHost: android.view.View? = null
 
     companion object {
         /** Extra para abrir la app directamente en una cuenta (burbuja, atajos del launcher). */
@@ -122,10 +172,8 @@ class MainActivity : AppCompatActivity() {
             "https://replit.com", "https://*.replit.com"
         )
 
-        private val PALETTE = listOf(
-            "#E07A5F", "#F2A541", "#81B29A", "#4FB0C6",
-            "#6C8EAD", "#9A7BD1", "#D96C9F", "#8D99AE"
-        ).map { Color.parseColor(it) }
+        /** Una sola paleta, la del dominio (`AccountPalette`): la usan el formulario, el botón + y la importación. */
+        private val PALETTE = AccountPalette.COLORS
 
         /**
          * Se inyecta en cada página: recuerda los blobs creados (por si la página los revoca antes de
@@ -156,8 +204,17 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var store: AccountStore
     private val accounts = mutableListOf<Account>()
+
+    /** Cambia una cuenta por id (las cuentas son inmutables) y devuelve la versión nueva. No guarda: hacelo con store.save/onAccountsChanged. */
+    private fun updateAcc(id: String, change: (Account) -> Account): Account? {
+        val i = accounts.indexOfFirst { it.id == id }
+        if (i < 0) return null
+        val n = change(accounts[i])
+        accounts[i] = n
+        return n
+    }
     private val webViews = HashMap<String, WebView>()
-    private val chips = HashMap<String, ImageView>()
+    private val chips = HashMap<String, AccountAvatarView>()
     private val failed = HashSet<String>()
 
     // Logo animado en bucle mientras carga la primera vez (o al recargar) la página de una cuenta.
@@ -183,7 +240,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnSnippets: ImageButton
     private lateinit var btnFiles: ImageButton
     private lateinit var btnBrowser: ImageButton
-    private lateinit var timeBar: TimeBar
+    private lateinit var timeBar: TimeBarView
     private lateinit var dockBg: GradientDrawable
     private lateinit var dockHandle: View
     private var dockCollapsed = false
@@ -191,15 +248,10 @@ class MainActivity : AppCompatActivity() {
     private var borderAnim: ValueAnimator? = null
     private lateinit var drawer: LinearLayout
     private lateinit var drawerBg: GradientDrawable
-    private lateinit var drawerSwitch: MaterialSwitch
     private var drawerOpen = false
     private var dockRadius = 0f
     private lateinit var dockLayer: LayerDrawable
-    private val drawerIcons = mutableListOf<TextView>()
-    private var drawerCaption: TextView? = null
     private var drawerAboutRow: TextView? = null
-    private var tabClaude: TextView? = null
-    private var tabReplit: TextView? = null
 
     private var currentId: String? = null
     private var previousId: String? = null
@@ -548,9 +600,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun sendNow(acc: Account, text: String) {
         if (text.isEmpty()) return
-        acc.autoReply = text.take(4000)
+        val updated = updateAcc(acc.id) { it.copy(autoReply = text.take(4000)) } ?: return
         store.save(accounts)
-        enqueueAutoReply(acc)
+        enqueueAutoReply(updated)
     }
 
     override fun onResume() {
@@ -789,10 +841,6 @@ class MainActivity : AppCompatActivity() {
         override fun close() = setSnippetsOpen(false)
         override fun message(text: String) = snack(text)
         override fun insert(text: String) = insertIntoPage(text)
-        override fun snippets(): List<String> = store.snippets
-        override fun saveSnippets(list: List<String>) {
-            store.snippets = list
-        }
     }
 
     private val browserHost = object : BrowserHost {
@@ -954,7 +1002,7 @@ class MainActivity : AppCompatActivity() {
         snippetsOpen = open
         if (open) {
             closePanelsExcept("snippets")
-            val p = snippetsPanel ?: SnippetsPanel(this, snippetsHost).also {
+            val p = snippetsPanel ?: SnippetsPanel(this, snippetsHost, snippetsVm).also {
                 snippetsPanel = it
                 addSwipeHandle(it.view) { setSnippetsOpen(false) }
                 container.addView(
@@ -965,7 +1013,6 @@ class MainActivity : AppCompatActivity() {
                 )
             }
             setDockMerged(true)
-            p.open()
             slideIn(p.view)
         } else {
             snippetsPanel?.view?.let { slideOut(it) { snippetsOpen } }
@@ -1073,10 +1120,8 @@ class MainActivity : AppCompatActivity() {
         if (::dockBg.isInitialized) dockBg.setColor(store.surface)
         if (::drawerBg.isInitialized) drawerBg.setColor(store.surface)
         if (::info.isInitialized) info.setTextColor(store.onSurface)
-        drawerIcons.forEach { it.setTextColor(store.onSurface) }
         if (::emptyView.isInitialized) recolorTexts(emptyView, store.onSurface)
         if (::errorView.isInitialized) recolorTexts(errorView, store.onSurface)
-        paintServiceTabs()
         resetPanels()
     }
 
@@ -1086,22 +1131,8 @@ class MainActivity : AppCompatActivity() {
         if (v is ViewGroup) for (i in 0 until v.childCount) recolorTexts(v.getChildAt(i), color)
     }
 
-    private fun dotDrawable(color: Int, selected: Boolean): GradientDrawable {
-        val d = GradientDrawable()
-        d.shape = GradientDrawable.OVAL
-        d.setColor(color)
-        if (selected) {
-            d.setStroke(dp(3), onSurface())
-        }
-        return d
-    }
-
     /** Texto e íconos neutros sobre la barra: dependen del servicio activo, no del tema del sistema. */
     private fun onSurface(): Int = store.onSurface
-
-    /** Texto sobre los menús del sistema (hojas inferiores), que siguen el tema del sistema. */
-    private fun sheetOnSurface(): Int =
-        MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, Color.BLACK)
 
     private fun updateEmptyState() {
         val empty = accounts.isEmpty()
@@ -1149,18 +1180,12 @@ class MainActivity : AppCompatActivity() {
                 return true
             }
 
-            override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
-                if (abs(vx) > abs(vy) && abs(vx) > 600f) {
-                    step(if (vx < 0) 1 else -1)
-                    return true
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean =
+                when (val gesture = DockGestures.fling(vx, vy)) {
+                    is DockGesture.Step -> { step(gesture.delta); true }
+                    is DockGesture.SetCollapsed -> { setDockCollapsed(gesture.collapsed, true); true }
+                    DockGesture.None -> false
                 }
-                // Swipe hacia arriba despliega la barra de cuentas (como el cajón de un launcher); hacia abajo la pliega.
-                if (abs(vy) > abs(vx) && abs(vy) > 500f) {
-                    setDockCollapsed(vy > 0, true)
-                    return true
-                }
-                return false
-            }
         })
         infoRow.setOnTouchListener { v, ev ->
             val r = gd.onTouchEvent(ev)
@@ -1171,10 +1196,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Pasa a la cuenta siguiente (+1) o anterior (-1) de la lista. */
     private fun step(delta: Int) {
-        if (accounts.size < 2) return
-        val idx = accounts.indexOfFirst { it.id == currentId }.coerceAtLeast(0)
-        val next = (idx + delta + accounts.size) % accounts.size
-        select(accounts[next].id)
+        AccountNavigation.step(accounts.map { it.id }, currentId, delta)?.let { select(it) }
     }
 
     private fun setDockCollapsed(collapsed: Boolean, animate: Boolean) {
@@ -1200,7 +1222,7 @@ class MainActivity : AppCompatActivity() {
     /** Reinicia la cuenta regresiva para plegar la barra sola (si está desplegada). */
     private fun scheduleAutoHide() {
         handler.removeCallbacks(autoHide)
-        if (!tutorialActive && !dockCollapsed && !subPanelOpen() && accounts.isNotEmpty()) handler.postDelayed(autoHide, AUTO_HIDE_MS)
+        if (DockPolicy.shouldAutoHide(tutorialActive, dockCollapsed, subPanelOpen(), accounts.size)) handler.postDelayed(autoHide, AUTO_HIDE_MS)
     }
 
     /** Borde superior de la barra con el color de la cuenta activa (separa la barra de la pantalla de Claude). */
@@ -1295,9 +1317,7 @@ class MainActivity : AppCompatActivity() {
             cornerRadius = dp(2).toFloat()
             setColor(ColorUtils.setAlphaComponent(c, 150))
         }
-        drawerCaption?.setTextColor(c)
-        paintServiceTabs()
-        drawerIcons.forEach { tv -> tv.compoundDrawablesRelative[0]?.setTint(c) }
+        settingsVm.setAccent(c)
     }
 
     private fun applyIcon(tv: TextView, icon: Int, tint: Int = accent()) {
@@ -1319,103 +1339,44 @@ class MainActivity : AppCompatActivity() {
         drawerBg = newTrayBg()
         styleTray(d, drawerBg) { dp(22).toFloat() }
 
-        val head = LinearLayout(this)
-        head.orientation = LinearLayout.HORIZONTAL
-        head.gravity = Gravity.CENTER_VERTICAL
-        head.setPadding(dp(8), dp(0), dp(8), dp(4))
-
-        // [ Claude ]  (logo de la app)  [ Replit ]: tocar un nombre cambia de mitad de la app.
-        fun tab(service: Service): TextView {
-            val t = TextView(this)
-            t.text = service.label
-            t.textSize = 20f
-            t.gravity = Gravity.CENTER
-            t.setTypeface(t.typeface, android.graphics.Typeface.BOLD)
-            t.setPadding(dp(8), dp(10), dp(8), dp(10))
-            t.setOnClickListener { switchService(service) }
-            return t
-        }
-        val tc = tab(Service.CLAUDE)
-        val tr = tab(Service.REPLIT)
-        tabClaude = tc
-        tabReplit = tr
-        val logo = ImageView(this)
-        logo.setImageResource(R.mipmap.ic_launcher)
-        logo.outlineProvider = object : ViewOutlineProvider() {
-            override fun getOutline(view: View, outline: Outline) {
-                outline.setOval(0, 0, view.width, view.height)
+        // El contenido del cajón (pestañas Claude/Replit, logo, interruptor de burbuja y filas) es Compose.
+        val actions = object : SettingsActions {
+            override fun selectService(service: AiService) = switchService(Service.fromKey(service.key))
+            override fun toggleTheme() = this@MainActivity.toggleTheme()
+            override fun toggleBubble(turnOn: Boolean) {
+                setDrawerOpen(false)
+                setBubbleEnabled(turnOn)
+            }
+            override fun reloadCurrent() {
+                setDrawerOpen(false)
+                currentId?.let { reloadWithLogo(it) }
+            }
+            override fun openDownloads() {
+                setDrawerOpen(false)
+                try {
+                    startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
+                } catch (_: Exception) {
+                    snack("No se pudo abrir Descargas")
+                }
+            }
+            override fun exportAccounts() {
+                setDrawerOpen(false)
+                exportLauncher.launch("AlternAIs-cuentas.json")
+            }
+            override fun importAccounts() {
+                setDrawerOpen(false)
+                importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
+            }
+            override fun showAbout() {
+                setDrawerOpen(false)
+                showAboutDialog()
             }
         }
-        logo.clipToOutline = true
-        // Tocar el logo alterna entre vista oscura y clara del servicio activo (app y web).
-        logo.contentDescription = "Cambiar entre tema oscuro y claro"
-        logo.setOnClickListener { toggleTheme() }
-        head.addView(tc, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        head.addView(logo, LinearLayout.LayoutParams(dp(48), dp(48)).apply {
-            marginStart = dp(8)
-            marginEnd = dp(8)
-        })
-        head.addView(tr, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        paintServiceTabs()
-        d.addView(head)
-
-        val caption = TextView(this)
-        caption.text = "Ajustes"
-        caption.textSize = 13f
-        caption.setTextColor(accent())
-        drawerCaption = caption
-        caption.setTypeface(caption.typeface, android.graphics.Typeface.BOLD)
-        caption.setPadding(dp(16), dp(14), dp(16), dp(2))
-        d.addView(caption)
-
-        // Burbuja de cuentas, con interruptor
-        val bubbleRow = LinearLayout(this)
-        bubbleRow.orientation = LinearLayout.HORIZONTAL
-        bubbleRow.gravity = Gravity.CENTER_VERTICAL
-        bubbleRow.setPadding(dp(16), dp(6), dp(16), dp(6))
-        bubbleRow.setBackgroundResource(selectableBg())
-        val label = TextView(this)
-        label.text = "Burbuja de cuentas"
-        label.textSize = 16f
-        label.setTextColor(onSurface())
-        applyIcon(label, R.drawable.ic_bubbles)
-        drawerIcons.add(label)
-        bubbleRow.addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        drawerSwitch = MaterialSwitch(this)
-        drawerSwitch.isClickable = false
-        bubbleRow.addView(drawerSwitch)
-        bubbleRow.setOnClickListener {
-            val turnOn = !drawerSwitch.isChecked
-            setDrawerOpen(false)
-            setBubbleEnabled(turnOn)
-        }
-        d.addView(bubbleRow)
-
-        drawerIcons.add(sheetRow(d, null, "Recargar cuenta actual", R.drawable.ic_reload) {
-            setDrawerOpen(false)
-            currentId?.let { reloadWithLogo(it) }
-        })
-        drawerIcons.add(sheetRow(d, null, "Ver descargas", R.drawable.ic_download) {
-            setDrawerOpen(false)
-            try {
-                startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
-            } catch (_: Exception) {
-                snack("No se pudo abrir Descargas")
-            }
-        })
-        drawerIcons.add(sheetRow(d, null, "Exportar cuentas", R.drawable.ic_download) {
-            setDrawerOpen(false)
-            exportLauncher.launch("AlternAIs-cuentas.json")
-        })
-        drawerIcons.add(sheetRow(d, null, "Importar cuentas", R.drawable.ic_upload) {
-            setDrawerOpen(false)
-            importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
-        })
-        drawerAboutRow = sheetRow(d, null, "Acerca de AlternAIs", R.drawable.ic_info) {
-            setDrawerOpen(false)
-            showAboutDialog()
-        }
-        drawerIcons.add(drawerAboutRow!!)
+        settingsVm.setAccent(accent())
+        d.addView(
+            createSettingsView(this, settingsVm, actions),
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        )
 
         d.visibility = View.GONE
         container.addView(
@@ -1425,21 +1386,6 @@ class MainActivity : AppCompatActivity() {
             )
         )
         drawer = d
-    }
-
-    /** Resalta la mitad activa (Claude / Replit) con el color de la cuenta activa. */
-    private fun paintServiceTabs() {
-        val c = accent()
-        val active = store.service
-        listOf(tabClaude to Service.CLAUDE, tabReplit to Service.REPLIT).forEach { (tv, svc) ->
-            tv ?: return@forEach
-            val on = svc == active
-            tv.setTextColor(if (on) c else (onSurface() and 0x00FFFFFF) or (0x99 shl 24))
-            tv.background = if (on) GradientDrawable().apply {
-                cornerRadius = dp(18).toFloat()
-                setColor((c and 0x00FFFFFF) or (0x2E shl 24))
-            } else null
-        }
     }
 
     /**
@@ -1510,7 +1456,7 @@ class MainActivity : AppCompatActivity() {
         drawer.animate().cancel()
         if (open) {
             closePanelsExcept("settings")
-            drawerSwitch.isChecked = store.bubbleEnabled && BubbleService.canDraw(this)
+            settingsVm.setBubbleShown(store.bubbleEnabled && BubbleService.canDraw(this))
             setDockMerged(true)
             drawer.alpha = 0f
             drawer.visibility = View.VISIBLE
@@ -1584,7 +1530,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     MotionEvent.ACTION_MOVE -> {
                         val dy = ev.rawY - downY
-                        if (!dragging && abs(dy) > slop * 2 && abs(dy) > abs(ev.rawX - downX) * 1.5f) dragging = true
+                        if (!dragging && DockGestures.startsVerticalDrag(ev.rawX - downX, dy, slop.toFloat())) dragging = true
                     }
                 }
                 return dragging
@@ -1599,7 +1545,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     MotionEvent.ACTION_UP -> {
                         val dy = ev.rawY - downY
-                        if (dragging && abs(dy) > dp(28)) setDockCollapsed(dy > 0, true)
+                        if (dragging) DockGestures.dragCollapse(dy, dp(28).toFloat())?.let { setDockCollapsed(it, true) }
                         dragging = false
                     }
                     MotionEvent.ACTION_CANCEL -> dragging = false
@@ -1637,7 +1583,7 @@ class MainActivity : AppCompatActivity() {
         dot.id = R.id.infoDot
         row.addView(dot, LinearLayout.LayoutParams(dp(16), dp(16)).apply { marginEnd = dp(10) })
 
-        val bar = TimeBar(this)
+        val bar = TimeBarView(this)
         bar.visibility = View.GONE
         row.addView(bar, LinearLayout.LayoutParams(0, dp(22), 1f).apply { marginEnd = dp(8) })
 
@@ -1734,9 +1680,8 @@ class MainActivity : AppCompatActivity() {
             marginEnd = dp(6)
         }
         accounts.forEach { acc ->
-            val circle = ImageView(this)
+            val circle = AccountAvatarView(this)
             circle.tag = acc.id
-            circle.scaleType = ImageView.ScaleType.FIT_CENTER
             circle.setOnClickListener {
                 pop(circle)
                 select(acc.id)
@@ -1750,20 +1695,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Botón agregar: círculo multicolor con un +
-        val add = TextView(this)
-        add.text = "+"
-        add.gravity = Gravity.CENTER
-        add.setTextColor(Color.WHITE)
-        add.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
-        add.typeface = android.graphics.Typeface.DEFAULT_BOLD
-        add.setShadowLayer(3f, 0f, 1f, Color.argb(120, 0, 0, 0))
-        add.includeFontPadding = false
+        val add = AddAccountButtonView(this)
         add.contentDescription = "Agregar cuenta"
-        add.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            gradientType = GradientDrawable.SWEEP_GRADIENT
-            colors = (PALETTE + PALETTE.first()).toIntArray()
-        }
         add.setOnClickListener {
             pop(add)
             addAccountFlow()
@@ -1797,15 +1730,11 @@ class MainActivity : AppCompatActivity() {
     private fun refreshCircles() {
         accounts.forEach { acc ->
             val iv = chips[acc.id] ?: return@forEach
-            iv.setImageBitmap(
-                Ui.timerAvatar(
-                    acc.color, Ui.initial(acc.name), circleSize, circleExtra,
-                    acc.limitFraction(), onSurface(), acc.id == currentId, onSurface()
-                )
+            iv.avatar = AvatarState(
+                color = acc.color, initial = AccountInitial.of(acc.name), fraction = acc.limitFraction(),
+                ringColor = onSurface(), selected = acc.id == currentId, markColor = onSurface()
             )
-            iv.contentDescription = if (acc.limitActive()) {
-                "${acc.name}, en descanso, faltan " + formatRemaining(acc.limitUntil - System.currentTimeMillis())
-            } else acc.name
+            iv.contentDescription = AccountStatusText.circleDescription(acc.name, acc.limitUntil, System.currentTimeMillis())
         }
     }
 
@@ -1827,32 +1756,24 @@ class MainActivity : AppCompatActivity() {
         dot.setColor(chrome(acc))
         infoDot.background = dot
 
-        val parts = mutableListOf(acc.name)
-        if (acc.purpose.isNotBlank()) parts.add(acc.purpose)
-        if (acc.limitActive()) {
-            val until = DateFormat.format("EEE HH:mm", acc.limitUntil)
-            val left = formatRemaining(acc.limitUntil - System.currentTimeMillis())
-            parts.add("En descanso hasta $until (faltan $left)")
-        } else {
-            parts.add("Disponible")
-        }
-        info.text = parts.joinToString(" · ")
-
-        if (acc.limitActive()) {
-            val left = formatRemaining(acc.limitUntil - System.currentTimeMillis())
-            timeBar.set(acc.limitFraction(), "${acc.name} · faltan $left", chrome(acc), onSurface())
-        } else {
-            timeBar.set(1f, "${acc.name} · Disponible", chrome(acc), onSurface())
-        }
+        val now = System.currentTimeMillis()
+        info.text = AccountStatusText.infoLine(
+            acc.name, acc.purpose, acc.limitUntil, now, java.time.ZoneId.systemDefault(), java.util.Locale.getDefault()
+        )
+        timeBar.set(
+            if (acc.limitActive(now)) acc.limitFraction() else 1f,
+            AccountStatusText.timeBarText(acc.name, acc.limitUntil, now), chrome(acc), onSurface()
+        )
     }
 
     private fun tick() {
         val now = System.currentTimeMillis()
         var changed = false
-        accounts.forEach { a ->
-            if (a.limitUntil in 1L..now) {
-                a.limitUntil = 0L
-                a.limitStart = 0L
+        for (i in accounts.indices) {
+            val old = accounts[i]
+            if (old.limitUntil in 1L..now) {
+                val a = old.copy(limitUntil = 0L, limitStart = 0L)
+                accounts[i] = a
                 changed = true
                 if (a.autoReply.isEmpty()) snack("«${a.name}» ya puede usarse de nuevo", "Responder") { quickReply(a) }
                 else Toast.makeText(this, "«${a.name}» ya puede usarse de nuevo", Toast.LENGTH_LONG).show()
@@ -1874,12 +1795,11 @@ class MainActivity : AppCompatActivity() {
         val acc = accounts.firstOrNull { it.id == id } ?: return
         val prev = currentId
         if (prev != null && prev != id) previousId = prev
-        val oldIdx = accounts.indexOfFirst { it.id == prev }
-        val newIdx = accounts.indexOfFirst { it.id == id }
+        val direction = AccountNavigation.direction(accounts.map { it.id }, prev, id)
         currentId = id
         store.selectedId = id
         webViews.getOrPut(id) { createWebView(acc) }
-        transitionTo(id, if (oldIdx < 0) 0 else Integer.signum(newIdx - oldIdx))
+        transitionTo(id, direction)
         progress.setIndicatorColor(chrome(acc))
         progress.visibility = View.INVISIBLE
         updateSelection()
@@ -1931,7 +1851,7 @@ class MainActivity : AppCompatActivity() {
         val safeUrl = urlForRestore(store.service, url) ?: return
         val acc = accounts.firstOrNull { it.id == id } ?: return
         if (acc.lastUrl == safeUrl) return
-        acc.lastUrl = safeUrl
+        updateAcc(id) { it.copy(lastUrl = safeUrl) }
         store.save(accounts)
     }
 
@@ -2276,79 +2196,53 @@ class MainActivity : AppCompatActivity() {
         showAccountDialog(null)
     }
 
+    /** Formulario de cuenta nueva/editar: es Compose (`ui/account`); acá solo se abre y se guarda. */
     private fun showAccountDialog(existing: Account?) {
-        val v = layoutInflater.inflate(R.layout.dialog_account, null)
-        val inName = v.findViewById<TextInputEditText>(R.id.inputName)
-        val inPurpose = v.findViewById<TextInputEditText>(R.id.inputPurpose)
-        val inEmail = v.findViewById<TextInputEditText>(R.id.inputEmail)
-        val row = v.findViewById<LinearLayout>(R.id.colorRow)
-        var color = existing?.color ?: PALETTE[accounts.size % PALETTE.size]
-        inName.setText(existing?.name ?: "")
-        inPurpose.setText(existing?.purpose ?: "")
-        inEmail.setText(existing?.email ?: "")
-
-        val dots = mutableListOf<Pair<Int, View>>()
-        fun paint() {
-            dots.forEach { (c, view) -> view.background = dotDrawable(c, c == color) }
-        }
-        PALETTE.forEach { c ->
-            val dot = View(this)
-            val lp = LinearLayout.LayoutParams(dp(40), dp(40))
-            lp.setMargins(dp(4), dp(4), dp(4), dp(4))
-            dot.layoutParams = lp
-            dot.setOnClickListener {
-                color = c
-                paint()
-                pop(dot)
-            }
-            row.addView(dot)
-            dots.add(c to dot)
-        }
-        paint()
-
-        val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle(if (existing == null) "Nueva cuenta" else "Editar cuenta")
-            .setView(v)
-            .setPositiveButton("Guardar", null)
-            .setNegativeButton("Cancelar", null)
-            .create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val name = inName.text?.toString()?.trim().orEmpty()
-                if (name.isEmpty()) {
-                    inName.error = "Poné un nombre"
-                    return@setOnClickListener
-                }
-                val purpose = inPurpose.text?.toString()?.trim().orEmpty()
-                val email = cleanEmail(inEmail.text?.toString())
-                if (existing == null) {
-                    val acc = Account(Account.newId(), name, purpose, color, email = email)
-                    accounts.add(acc)
-                    onAccountsChanged()
-                    rebuildChips()
-                    updateEmptyState()
-                    select(acc.id)
-                    maybeSuggestBubble()
-                } else {
-                    existing.name = name
-                    existing.purpose = purpose
-                    existing.email = email
-                    existing.color = color
-                    onAccountsChanged()
-                    rebuildChips()
-                    updateInfo()
-                    if (existing.id == currentId) progress.setIndicatorColor(chrome(existing))
-                }
-                dialog.dismiss()
-            }
-        }
-        dialog.show()
+        ensureAccountFormHost()
+        accountFormVm.open(
+            AccountForm(
+                accountId = existing?.id,
+                name = existing?.name ?: "",
+                purpose = existing?.purpose ?: "",
+                email = existing?.email ?: "",
+                color = existing?.color ?: AccountPalette.defaultFor(accounts.size)
+            )
+        )
     }
 
-    private fun cleanEmail(raw: String?): String {
-        val t = raw?.trim().orEmpty().take(80)
-        return if (Regex("^[^\\s@]+@[^\\s@]+$").matches(t)) t else ""
+    private fun ensureAccountFormHost() {
+        if (accountFormHost != null) return
+        accountFormHost = createAccountFormHost(this, accountFormVm, accountFormActions).also {
+            addContentView(it, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
     }
+
+    private val accountFormActions = object : AccountFormActions {
+        override fun save(accountId: String?, data: AccountFormResult.Valid) {
+            if (accountId == null) {
+                val acc = Account(Account.newId(), data.name, data.purpose, data.color, email = data.email)
+                accounts.add(acc)
+                onAccountsChanged()
+                rebuildChips()
+                updateEmptyState()
+                select(acc.id)
+                maybeSuggestBubble()
+            } else {
+                val existing = updateAcc(accountId) {
+                    it.copy(name = data.name, purpose = data.purpose, email = data.email, color = data.color)
+                } ?: return
+                onAccountsChanged()
+                rebuildChips()
+                updateInfo()
+                if (existing.id == currentId) progress.setIndicatorColor(chrome(existing))
+            }
+        }
+        override fun surface(): Int = store.surface
+        override fun onSurface(): Int = store.onSurface
+        override fun accent(): Int = this@MainActivity.accent()
+    }
+
+    private fun cleanEmail(raw: String?): String = EmailPolicy.clean(raw)
 
     /** Al tener la segunda cuenta se sugiere (una sola vez) la burbuja flotante. */
     private fun maybeSuggestBubble() {
@@ -2370,84 +2264,35 @@ class MainActivity : AppCompatActivity() {
         return tv.resourceId
     }
 
-    private fun sheetColumn(): LinearLayout {
-        val col = LinearLayout(this)
-        col.orientation = LinearLayout.VERTICAL
-        col.setPadding(dp(8), dp(12), dp(8), dp(24))
-        return col
-    }
-
-    private fun sheetHeader(col: LinearLayout, title: String, subtitle: String?, color: Int?) {
-        val head = LinearLayout(this)
-        head.orientation = LinearLayout.HORIZONTAL
-        head.gravity = android.view.Gravity.CENTER_VERTICAL
-        head.setPadding(dp(16), dp(4), dp(16), dp(12))
-        if (color != null) {
-            val dot = View(this)
-            dot.background = dotDrawable(color, false)
-            head.addView(dot, LinearLayout.LayoutParams(dp(14), dp(14)).apply { marginEnd = dp(12) })
-        }
-        val texts = LinearLayout(this)
-        texts.orientation = LinearLayout.VERTICAL
-        val t = TextView(this)
-        t.text = title
-        t.textSize = 18f
-        t.setTypeface(t.typeface, android.graphics.Typeface.BOLD)
-        t.setTextColor(sheetOnSurface())
-        texts.addView(t)
-        if (!subtitle.isNullOrBlank()) {
-            val s = TextView(this)
-            s.text = subtitle
-            s.textSize = 13f
-            s.setTextColor(ColorUtils.setAlphaComponent(sheetOnSurface(), 150))
-            texts.addView(s)
-        }
-        head.addView(texts)
-        col.addView(head)
-    }
-
-    private fun sheetRow(col: LinearLayout, sheet: BottomSheetDialog?, text: String, icon: Int? = null, tint: Int = accent(), onClick: () -> Unit): TextView {
-        val tv = TextView(this)
-        tv.text = text
-        tv.textSize = 16f
-        tv.setTextColor(if (sheet == null) onSurface() else sheetOnSurface())
-        tv.gravity = Gravity.CENTER_VERTICAL
-        tv.setPadding(dp(16), dp(14), dp(16), dp(14))
-        if (icon != null) applyIcon(tv, icon, tint)
-        tv.setBackgroundResource(selectableBg())
-        tv.setOnClickListener {
-            sheet?.dismiss()
-            onClick()
-        }
-        col.addView(tv)
-        return tv
-    }
-
+    /** Menú de cada cuenta: es Compose (`ui/accountmenu`); acá solo se abre y se ejecuta la opción elegida. */
     private fun showAccountMenu(acc: Account) {
-        val sheet = BottomSheetDialog(this)
-        val col = sheetColumn()
-        val status = if (acc.limitActive()) {
-            "En descanso hasta " + DateFormat.format("EEE HH:mm", acc.limitUntil)
-        } else "Disponible"
-        sheetHeader(col, acc.name, listOf(acc.purpose, acc.email, status).filter { it.isNotBlank() }.joinToString(" · "), acc.color)
-        sheetRow(col, sheet, "Editar nombre, propósito o color", R.drawable.ic_edit, chrome(acc)) { showAccountDialog(acc) }
-        sheetRow(col, sheet, "Recargar", R.drawable.ic_reload, chrome(acc)) { if (webViews.containsKey(acc.id)) reloadWithLogo(acc.id) else select(acc.id) }
-        sheetRow(col, sheet, "Marcar límite alcanzado…", R.drawable.ic_clock, chrome(acc)) { showLimitDialog(acc) }
-        if (acc.limitActive()) sheetRow(col, sheet, "Quitar marca de límite", R.drawable.ic_check, chrome(acc)) { setLimit(acc, 0L) }
-        sheetRow(col, sheet, "Cerrar sesión y borrar datos", R.drawable.ic_logout, chrome(acc)) {
-            confirm(
-                "Cerrar sesión",
-                "Se cierra la sesión de «${acc.name}» y se borran sus cookies y datos en este dispositivo."
-            ) { wipeAccount(acc, remove = false) }
+        ensureAccountMenuHost()
+        accountMenuVm.open(acc.id, chrome(acc), acc.name, acc.purpose, acc.email, acc.limitUntil)
+    }
+
+    private fun ensureAccountMenuHost() {
+        if (accountMenuHost != null) return
+        accountMenuHost = createAccountMenuHost(this, accountMenuVm, accountMenuActions).also {
+            addContentView(it, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        sheetRow(col, sheet, "Eliminar cuenta", R.drawable.ic_trash, chrome(acc)) {
-            confirm(
-                "Eliminar cuenta",
-                "Se quita «${acc.name}» de la app y se borran sus datos en este dispositivo. Tu cuenta de ${store.service.label} no se toca."
-            ) { wipeAccount(acc, remove = true) }
+    }
+
+    private val accountMenuActions = object : AccountMenuActions {
+        override fun run(accountId: String, action: AccountMenuAction) {
+            val acc = accounts.firstOrNull { it.id == accountId } ?: return
+            when (action) {
+                AccountMenuAction.EDIT -> showAccountDialog(acc)
+                AccountMenuAction.RELOAD -> if (webViews.containsKey(acc.id)) reloadWithLogo(acc.id) else select(acc.id)
+                AccountMenuAction.MARK_LIMIT -> showLimitDialog(acc)
+                AccountMenuAction.CLEAR_LIMIT -> setLimit(acc, 0L)
+                AccountMenuAction.SIGN_OUT, AccountMenuAction.DELETE -> {
+                    val ask = BuildAccountMenu.confirmation(action, acc.name, store.service.label) ?: return
+                    confirm(ask.title, ask.message) { wipeAccount(acc, remove = action == AccountMenuAction.DELETE) }
+                }
+            }
         }
-        sheet.setContentView(col)
-        sheet.show()
+        override fun surface(): Int = store.surface
+        override fun onSurface(): Int = store.onSurface
     }
 
     // ---------------------------------------------------------------- Mensajes guardados
@@ -2560,7 +2405,7 @@ class MainActivity : AppCompatActivity() {
                 title = "Acerca de"
                 body = "Acerca de AlternAIs muestra qué hace la app y quién la pensó y diseñó. La opción está en este menú."
                 setDrawerOpen(true)
-                target = drawerAboutRow
+                target = drawer // «Acerca de» ahora vive dentro de Compose: se resalta todo el cajón
             }
         }
         overlay.setStep(index + 1, 5, title, body, target)
@@ -2927,38 +2772,31 @@ class MainActivity : AppCompatActivity() {
 
     // ---------------------------------------------------------------- Límites de uso
 
-    /**
-     * Opciones según la cuota de cada IA. Claude: ventana de 5 h y tope semanal. Replit: Modo gratis
-     * (se renueva cada 5 h y tiene tope semanal), créditos diarios del plan Starter y créditos
-     * mensuales que se renuevan al empezar cada ciclo de facturación.
-     */
+    /** Opciones según la cuota de cada IA (reglas en `LimitOptions`); los diálogos son Compose (`ui/limits`). */
     private fun showLimitDialog(acc: Account) {
-        val hour = 60 * 60 * 1000L
-        val replit = store.service == Service.REPLIT
-        val items = if (replit) {
-            arrayOf(
-                "Dentro de 5 horas (Modo gratis)",
-                "Dentro de 24 horas (créditos diarios)",
-                "Dentro de 7 días (tope semanal)",
-                "En la renovación mensual…",
-                "A una hora exacta…"
-            )
-        } else {
-            arrayOf("Dentro de 5 horas", "Dentro de 24 horas", "Dentro de 7 días", "A una hora exacta…")
+        ensureLimitHost()
+        limitVm.openOptions(acc.id, AiService.fromKey(store.service.key))
+    }
+
+    /** Agrega (una sola vez) la vista que aloja los diálogos de límites en Compose. */
+    private fun ensureLimitHost() {
+        if (limitHost != null) return
+        limitHost = createLimitHost(this, limitVm, limitActions).also {
+            addContentView(it, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        MaterialAlertDialogBuilder(this)
-            .setTitle("¿Cuándo se reinicia el límite?")
-            .setItems(items) { _, which ->
-                val now = System.currentTimeMillis()
-                when (which) {
-                    0 -> setLimit(acc, now + 5 * hour)
-                    1 -> setLimit(acc, now + 24 * hour)
-                    2 -> setLimit(acc, now + 7 * 24 * hour)
-                    3 -> if (replit) pickRenewalDate(acc) else pickExactTime(acc)
-                    4 -> pickExactTime(acc)
-                }
-            }
-            .show()
+    }
+
+    private val limitActions = object : LimitActions {
+        override fun apply(accountId: String, untilMs: Long) {
+            accounts.firstOrNull { it.id == accountId }?.let { setLimit(it, untilMs) }
+        }
+        override fun pickRenewalDate(accountId: String) {
+            accounts.firstOrNull { it.id == accountId }?.let { this@MainActivity.pickRenewalDate(it) }
+        }
+        override fun message(text: String) = snack(text)
+        override fun surface(): Int = store.surface
+        override fun onSurface(): Int = store.onSurface
+        override fun accent(): Int = this@MainActivity.accent()
     }
 
     /** Replit: día en que se renuevan los créditos del mes (empieza el ciclo de facturación, 00:00). */
@@ -2982,145 +2820,16 @@ class MainActivity : AppCompatActivity() {
         picker.show(supportFragmentManager, "limit_date")
     }
 
-    /**
-     * Hora exacta: horas y minutos arrancan en cero (se seleccionan al tocar, así se escribe sin borrar).
-     * «Auto» elige solo AM o PM: lo próximo que viene (si son las 16:30 y escribís 5, es 17:00 de hoy).
-     */
-    private fun pickExactTime(acc: Account) {
-        fun field(initial: String, hint: String): TextInputEditText {
-            val e = TextInputEditText(this)
-            e.setText(initial)
-            e.hint = hint
-            e.inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            e.filters = arrayOf(android.text.InputFilter.LengthFilter(2))
-            e.gravity = Gravity.CENTER
-            e.textSize = 26f
-            e.setSelectAllOnFocus(true)
-            return e
-        }
-        val hour = field("0", "Hora")
-        val min = field("00", "Min")
-        val modes = arrayOf("Auto", "AM", "PM")
-        var mode = 0
-        val preview = TextView(this)
-        preview.textSize = 14f
-        preview.setTextColor(ColorUtils.setAlphaComponent(store.onSurface, 170))
-        preview.gravity = Gravity.CENTER
-
-        fun target(): Calendar? {
-            val h = hour.text?.toString().orEmpty().ifEmpty { "0" }.toIntOrNull() ?: return null
-            val m = min.text?.toString().orEmpty().ifEmpty { "0" }.toIntOrNull() ?: return null
-            if (h !in 0..23 || m !in 0..59) return null
-            val now = System.currentTimeMillis()
-            fun at(hh: Int, addDays: Int) = Calendar.getInstance().apply {
-                set(Calendar.HOUR_OF_DAY, hh)
-                set(Calendar.MINUTE, m)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-                add(Calendar.DAY_OF_YEAR, addDays)
-            }
-            fun nextOf(hh: Int): Calendar = if (at(hh, 0).timeInMillis > now) at(hh, 0) else at(hh, 1)
-            if (h == 0 || h > 12) return nextOf(h) // 24 h tal cual
-            val am = h % 12
-            val pm = am + 12
-            return when (mode) {
-                1 -> nextOf(am)
-                2 -> nextOf(pm)
-                else -> listOf(nextOf(am), nextOf(pm)).minByOrNull { it.timeInMillis }
-            }
-        }
-
-        fun refresh() {
-            val t = target()
-            preview.text = if (t == null) "Hora no válida" else {
-                val same = DateFormat.format("yyyyMMdd", t).toString() == DateFormat.format("yyyyMMdd", System.currentTimeMillis()).toString()
-                "Se reinicia " + (if (same) "hoy" else "mañana") + " a las " + DateFormat.format("HH:mm", t)
-            }
-        }
-        val watcher = object : android.text.TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
-            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
-            override fun afterTextChanged(s: android.text.Editable?) = refresh()
-        }
-        hour.addTextChangedListener(watcher)
-        min.addTextChangedListener(watcher)
-        // Con dos cifras en la hora se pasa solo a los minutos.
-        hour.addTextChangedListener(object : android.text.TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
-            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
-            override fun afterTextChanged(s: android.text.Editable?) {
-                if (s?.length == 2 && hour.hasFocus()) min.requestFocus()
-            }
-        })
-
-        val row = LinearLayout(this)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.gravity = Gravity.CENTER_VERTICAL
-        row.addView(hour, LinearLayout.LayoutParams(dp(80), ViewGroup.LayoutParams.WRAP_CONTENT))
-        val colon = TextView(this)
-        colon.text = ":"
-        colon.textSize = 26f
-        colon.setTextColor(store.onSurface)
-        row.addView(colon, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            marginStart = dp(6)
-            marginEnd = dp(6)
-        })
-        row.addView(min, LinearLayout.LayoutParams(dp(80), ViewGroup.LayoutParams.WRAP_CONTENT))
-        val ap = TextView(this)
-        ap.text = modes[0]
-        ap.textSize = 16f
-        ap.setTextColor(accent())
-        ap.gravity = Gravity.CENTER
-        ap.setPadding(dp(16), dp(10), dp(16), dp(10))
-        ap.background = GradientDrawable().apply {
-            cornerRadius = dp(18).toFloat()
-            setStroke(dp(1), accent())
-        }
-        ap.setOnClickListener {
-            mode = (mode + 1) % modes.size
-            ap.text = modes[mode]
-            refresh()
-        }
-        row.addView(ap, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            marginStart = dp(16)
-        })
-
-        val col = LinearLayout(this)
-        col.orientation = LinearLayout.VERTICAL
-        col.gravity = Gravity.CENTER_HORIZONTAL
-        col.setPadding(dp(20), dp(12), dp(20), 0)
-        col.addView(row)
-        col.addView(preview, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(12)
-        })
-        refresh()
-
-        val dlg = MaterialAlertDialogBuilder(this)
-            .setTitle("Hora en que se reinicia")
-            .setMessage("Tocá «Auto» para elegir AM o PM a mano.")
-            .setView(col)
-            .setPositiveButton("Aceptar") { _, _ ->
-                val t = target()
-                if (t == null) snack("Hora no válida") else setLimit(acc, t.timeInMillis)
-            }
-            .setNegativeButton("Cancelar", null)
-            .show()
-        // El teclado no se abre solo con el foco: se pide explícitamente cuando el diálogo ya se mostró.
-        dlg.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
-        hour.postDelayed({
-            hour.requestFocus()
-            hour.selectAll()
-            (getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
-                .showSoftInput(hour, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-        }, 250)
-    }
-
     private fun setLimit(acc: Account, until: Long) {
         // El aviso de fin de descanso es una notificación: pide el permiso la primera vez.
         if (until > 0L) askNotificationPermissionThen { }
-        acc.limitUntil = until
-        acc.limitStart = if (until > 0L) System.currentTimeMillis() else 0L
-        if (until <= 0L) acc.autoReply = ""
+        val upd = updateAcc(acc.id) {
+            it.copy(
+                limitUntil = until,
+                limitStart = if (until > 0L) System.currentTimeMillis() else 0L,
+                autoReply = if (until <= 0L) "" else it.autoReply
+            )
+        } ?: return
         onAccountsChanged()
         refreshChipTexts()
         updateInfo()
@@ -3128,7 +2837,7 @@ class MainActivity : AppCompatActivity() {
             val alt = accounts.firstOrNull { it.id != acc.id && !it.limitActive() }
             if (alt != null) snack("«${acc.name}» en descanso", "Ir a «${alt.name}»") { select(alt.id) }
         }
-        if (until > 0L) askAutoReply(acc)
+        if (until > 0L) askAutoReply(upd)
     }
 
     // ---------------------------------------------------------------- Respuesta automática
@@ -3177,7 +2886,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setAutoReply(acc: Account, text: String) {
-        acc.autoReply = text.take(4000)
+        updateAcc(acc.id) { it.copy(autoReply = text.take(4000)) }
         store.save(accounts)
         snack(if (text.isEmpty()) "Sin respuesta automática" else "Se enviará sola «${text.take(40)}» al terminar el descanso, sin abrir la app")
     }
@@ -3202,7 +2911,7 @@ class MainActivity : AppCompatActivity() {
         }
         autoBusy = true
         val text = acc.autoReply
-        acc.autoReply = "" // se limpia antes de enviar: nunca se manda dos veces
+        updateAcc(acc.id) { it.copy(autoReply = "") } // se limpia antes de enviar: nunca se manda dos veces
         store.save(accounts)
         select(acc.id)
         reloadWithLogo(acc.id)

@@ -22,6 +22,8 @@ import androidx.core.content.ContextCompat
 import androidx.webkit.ProfileStore
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import app.claudeck.domain.usecase.AutoSendPolicy
+import app.claudeck.domain.usecase.SendStep
 
 /**
  * Envía un mensaje en el chat de una cuenta SIN abrir la app: carga la última página de esa cuenta en un
@@ -90,8 +92,7 @@ class AutoReplyService : android.app.Service() {
             // Mensaje automático: se limpia antes de enviar, así nunca se manda dos veces.
             text = acc.autoReply
             if (text.isEmpty()) { finish(id); return START_NOT_STICKY }
-            acc.autoReply = ""
-            store.saveFor(svc, list)
+            store.saveFor(svc, list.map { if (it.id == id) it.copy(autoReply = "") else it })
         }
         try {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -136,12 +137,12 @@ class AutoReplyService : android.app.Service() {
             if (done) return
             wv.evaluateJavascript(AutoSend.js(text)) { res ->
                 if (done) return@evaluateJavascript
-                if (res?.contains("ok") == true) {
+                when (val step = AutoSendPolicy.next(n, res?.contains("ok") == true)) {
                     // El script hace el clic de enviar ~0,6 s después: se espera a que salga la petición.
-                    handler.postDelayed({ end(true) }, 3500)
-                } else if (n < 22) {
-                    handler.postDelayed({ attempt(n + 1) }, 2000)
-                } else end(false)
+                    is SendStep.Sent -> handler.postDelayed({ end(true) }, AutoSendPolicy.SETTLE_MS)
+                    is SendStep.RetryIn -> handler.postDelayed({ attempt(n + 1) }, step.delayMs)
+                    is SendStep.GiveUp -> end(false)
+                }
             }
         }
         wv.webViewClient = object : WebViewClient() {
@@ -150,11 +151,11 @@ class AutoReplyService : android.app.Service() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 if (started) return
                 started = true
-                handler.postDelayed({ attempt(0) }, 3000)
+                handler.postDelayed({ attempt(0) }, AutoSendPolicy.FIRST_ATTEMPT_DELAY_MS)
             }
         }
         // Tope total: si la página nunca carga, se avisa el fallo.
-        handler.postDelayed({ end(false) }, 80_000)
+        handler.postDelayed({ end(false) }, AutoSendPolicy.TOTAL_TIMEOUT_MS)
         wv.loadUrl(urlForRestore(svc, acc.lastUrl) ?: svc.startUrl)
     }
 

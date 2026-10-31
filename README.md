@@ -43,11 +43,28 @@ El APK usa siempre la misma firma (incluida en `android/app/debug.keystore`), as
 - Ventana sin marco estándar de Windows, con barra de título y controles propios. El instalador de Inno Setup también incluye gráficos de marca a juego.
 - Para probarla en tu PC: `cd windows && npm install && npm start`.
 
+### Windows nativo (en pruebas)
+Hay una versión nueva en `windows-native/` (WinUI 3 + .NET 9 + WebView2, sin Electron). Con el `cd.yml` nuevo (copia en `docs/cd.yml`, pegarlo a mano en `.github/workflows/`) se compila sola al subir `cd.zip`: artifact **`AlternAIs-Windows`** (instalador) y `Tests-Windows` (reporte de tests). La versión Electron sigue saliendo como respaldo (`Claudeck-Windows-Electron`). Las dos usan el mismo instalador: se instala una u otra.
+
+Lee el mismo `accounts.json`, así que conserva tus cuentas, pero **hay que volver a iniciar sesión en cada una** (las sesiones de Electron no se migran). Necesita *Microsoft Edge WebView2 Runtime* (viene con Windows 10/11 actualizados).
+
+Qué tiene (igual que la versión de siempre):
+- Animación del logo al abrir y logo en bucle mientras carga una cuenta.
+- Barra de título propia con la **barra de tiempo** de la cuenta activa («Trabajo · faltan 2 h 10 min»).
+- Barra de cuentas a la izquierda, derecha o abajo; Claude y Replit con sus cuentas y su tema (tocá el logo de Ajustes para alternar oscuro/claro).
+- **Explorador de archivos** (Ctrl+E): lugares rápidos, abrir/ejecutar, copiar, mover, renombrar, borrar a la Papelera, carpeta nueva y extraer .zip. Clic derecho = opciones; Supr, F2, Enter, Retroceso, Ctrl+C/X/V, Ctrl+Mayús+N.
+- Mensajes guardados (Ctrl+M, con «Texto propio…»), navegador interno (Ctrl+B) y ajustes (Ctrl+,).
+- **Bandeja del sistema**: en Ajustes → «Al cerrar la ventana» → «Seguir en la bandeja». Clic en el ícono abre; clic derecho muestra las cuentas con su cuenta regresiva y «Salir».
+- Aviso de fin de descanso con caja para **responder desde el aviso** y los dos primeros mensajes guardados como botones; respuesta automática al marcar el límite (mensaje guardado, texto propio o ninguna).
+- Atajos que funcionan aunque estés escribiendo en la página: Ctrl+Tab / Ctrl+Mayús+Tab, Ctrl+1…9, Ctrl+N, Ctrl+B, Ctrl+M, Ctrl+E, Ctrl+,.
+- Micrófono para el dictado por voz (solo para claude.ai / replit.com); la cámara no.
+- Tutorial la primera vez (se puede volver a ver desde Ajustes) y una sola AlternAIs abierta a la vez.
+
 ## Limitaciones conocidas
 
 - **"Continuar con Google"** puede no funcionar dentro de un navegador embebido (Google lo bloquea a veces). Si falla, entrá con tu email (te llega un código).
-- El micrófono/cámara de la app web no están soportados en Android por ahora.
-- El aviso de fin de descanso en Android aparece cuando abrís la app; en Windows es una notificación del sistema.
+- En Android el **micrófono** (dictado por voz de las IA) funciona: la primera vez Android pide el permiso. La cámara no está soportada.
+- El aviso de fin de descanso es una notificación del sistema en ambas plataformas (en Windows, con la app abierta o en la bandeja).
 
 ## Uso responsable
 
