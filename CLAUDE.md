@@ -2,6 +2,8 @@
 
 > Leé este archivo primero. Cubre arquitectura, funciones, convenciones, build y trampas conocidas, para no tener que re-explorar el código ni leer todo el zip. Si cambiás algo estructural, **actualizá este archivo**.
 
+> **ACTUALIZACIÓN (2026-11-08): la versión Electron se RETIRÓ.** La carpeta `windows/` y el workflow `windows.yml` ya no existen; Windows es solo `windows-native/` (WinUI 3 + C#). Todo lo que este archivo dice de Electron (`main.js`, `renderer/`, `preload.js`, `fileops.js`, `package.json`, `installer/claudeck.iss`, `npm`) es **historia**: la referencia vigente es §4a–§4e. El instalador usa los BMP de `windows-native/installer/`; `scripts/make_icon.py` ahora genera `windows-native/src/AlternAIs.App/Assets/icon.ico` y esos BMP. El `cd.zip` lleva `android/`, `windows-native/`, `.github/`, `docs/`, `scripts/`. `cd.yml` (copia en `docs/cd.yml`) ya no tiene el job `windows-electron`; hay que pegarlo a mano en `.github/workflows/` y borrar a mano `windows.yml` del repo (Actions no puede tocar workflows).
+
 ## 1. Qué es
 
 AlternAIs es un contenedor de cuentas de **claude.ai** y **replit.com**: varias cuentas abiertas a la vez, cada una con **sesión aislada** (cookies/storage propios), y cambio entre ellas con un toque/clic. No es oficial de Anthropic, no usa ninguna API: solo abre `https://claude.ai/` en un WebView por cuenta.

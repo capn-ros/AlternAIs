@@ -13,9 +13,9 @@ No es una app oficial de Anthropic: es un contenedor que abre `claude.ai` y guar
    - `Claudeck-Android` → `Claudeck-N.apk`
    - `Claudeck-Windows` → `AlternAIs-Setup-1.0.N.exe` (instalador)
 
-`cd.zip` debe tener en su raíz lo mismo que la raíz del repo (`android/`, `windows/`, `.github/`), sin carpeta intermedia (si trae una sola carpeta, también la entiende).
+`cd.zip` debe tener en su raíz lo mismo que la raíz del repo (`android/`, `windows-native/`, `.github/`), sin carpeta intermedia (si trae una sola carpeta, también la entiende).
 
-También funcionan los workflows normales: al hacer push de cambios en `android/` o `windows/` se compila esa parte, y desde **Actions → Run workflow** podés lanzarlos a mano.
+También funcionan los workflows normales: al hacer push de cambios en `android/` se compila esa parte, y desde **Actions → Run workflow** podés lanzarlos a mano.
 
 El APK usa siempre la misma firma (incluida en `android/app/debug.keystore`), así que cada versión nueva se instala encima de la anterior sin perder las sesiones.
 
@@ -41,10 +41,9 @@ El APK usa siempre la misma firma (incluida en `android/app/debug.keystore`), as
 - Barra de cuentas (a la izquierda, a la derecha o abajo: se elige en Ajustes), clic derecho para el menú de cada una. Ajustes también tiene **Iniciar con Windows** y qué hacer al cerrar: cerrar la app o dejarla en la **bandeja del sistema**.
 - Atajos: `Ctrl+1…9` cambia de cuenta, `Ctrl+Tab` pasa a la siguiente, `Ctrl+N` agrega, `Ctrl+R` recarga.
 - Ventana sin marco estándar de Windows, con barra de título y controles propios. El instalador de Inno Setup también incluye gráficos de marca a juego.
-- Para probarla en tu PC: `cd windows && npm install && npm start`.
 
-### Windows nativo (en pruebas)
-Hay una versión nueva en `windows-native/` (WinUI 3 + .NET 9 + WebView2, sin Electron). Con el `cd.yml` nuevo (copia en `docs/cd.yml`, pegarlo a mano en `.github/workflows/`) se compila sola al subir `cd.zip`: artifact **`AlternAIs-Windows`** (instalador) y `Tests-Windows` (reporte de tests). La versión Electron sigue saliendo como respaldo (`Claudeck-Windows-Electron`). Las dos usan el mismo instalador: se instala una u otra.
+### Windows (versión nativa)
+Hay una versión nueva en `windows-native/` (WinUI 3 + .NET 9 + WebView2, que reemplazó a la versión Electron, ya retirada). Con el `cd.yml` nuevo (copia en `docs/cd.yml`, pegarlo a mano en `.github/workflows/`) se compila sola al subir `cd.zip`: artifact **`AlternAIs-Windows`** (instalador) y `Tests-Windows` (reporte de tests).
 
 Lee el mismo `accounts.json`, así que conserva tus cuentas, pero **hay que volver a iniciar sesión en cada una** (las sesiones de Electron no se migran). Necesita *Microsoft Edge WebView2 Runtime* (viene con Windows 10/11 actualizados).
 

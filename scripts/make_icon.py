@@ -1,6 +1,6 @@
-# Genera el ícono de AlternAIs: windows/build/icon.png|ico y los gráficos del instalador (BMP). Requiere Pillow.
+# Genera el ícono de AlternAIs: windows-native/.../Assets/icon.ico y los gráficos del instalador (BMP). Requiere Pillow.
 # Un círculo partido en dos mitades desfasadas: coral (Claude) y crema (Replit), sobre fondo carbón.
-# El ícono de Android (ic_launcher_foreground.xml / ic_logo.xml) y los SVG de index.html son copias del mismo diseño.
+# El ícono de Android (ic_launcher_foreground.xml / ic_logo.xml) y el logo de Windows son copias del mismo diseño.
 import os
 from PIL import Image, ImageDraw
 
@@ -26,14 +26,11 @@ def logo(background=True):
 
 
 if __name__ == "__main__":
-    root = os.path.join(os.path.dirname(__file__), "..", "windows")
-    out = os.path.join(root, "build")
-    os.makedirs(out, exist_ok=True)
+    root = os.path.join(os.path.dirname(__file__), "..", "windows-native")
+    assets = os.path.join(root, "src", "AlternAIs.App", "Assets")
+    os.makedirs(assets, exist_ok=True)
     icon = logo().resize((512, 512), Image.LANCZOS)
-    icon.save(os.path.join(out, "icon.png"))
-    # Ícono de la bandeja del sistema (va dentro de renderer/ para que entre en el paquete)
-    icon.resize((64, 64), Image.LANCZOS).save(os.path.join(root, "renderer", "tray.png"))
-    icon.save(os.path.join(out, "icon.ico"), sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    icon.save(os.path.join(assets, "icon.ico"), sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
 
     inst = os.path.join(root, "installer")
     if os.path.isdir(inst):
