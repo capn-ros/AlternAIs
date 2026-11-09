@@ -67,6 +67,8 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.webkit:webkit:1.11.0")
+    // Leer y extraer .rar (solo Java, sin código nativo)
+    implementation("com.github.junrar:junrar:7.5.5")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     // Compose (UI declarativa). El BOM fija las versiones de todas las librerías de Compose.

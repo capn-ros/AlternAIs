@@ -33,7 +33,7 @@ enum class BackAction { CLEAR_SELECTION, GO_UP, CLOSE }
 enum class BarAction {
     PICK_UPLOAD, DOWNLOADS, STORAGE, SYSTEM_PICKER, CANCEL,
     COPY, MOVE, RENAME, EXTRACT, DELETE, SELECT_ALL, CANCEL_SELECTION,
-    PASTE, DISCARD_CLIP, NEW_FOLDER, SORT
+    PASTE, DISCARD_CLIP, NEW_FOLDER, SORT, EXTRACT_ALL
 }
 
 object ExplorerRules {
@@ -54,9 +54,27 @@ object ExplorerRules {
 
     /** Botones de la barra según el modo (elegir para subir, selección, portapapeles o normal). */
     fun barActions(
-        hasAccess: Boolean, picking: Boolean, selectedCount: Int, onlySelectedIsZip: Boolean, clipCount: Int
+        hasAccess: Boolean, picking: Boolean, selectedCount: Int, onlySelectedIsZip: Boolean, clipCount: Int,
+        inArchive: Boolean = false, archiveWritable: Boolean = true
     ): List<BarAction> {
         if (!hasAccess) return emptyList()
+        if (inArchive) {
+            // Dentro de un .zip/.rar: copiar hacia afuera y extraer siempre; modificar solo en .zip (los .rar son de solo lectura).
+            return buildList {
+                if (selectedCount > 0) {
+                    add(BarAction.COPY)
+                    if (archiveWritable && selectedCount == 1) add(BarAction.RENAME)
+                    add(BarAction.EXTRACT)
+                    if (archiveWritable) add(BarAction.DELETE)
+                    addAll(listOf(BarAction.SELECT_ALL, BarAction.CANCEL_SELECTION))
+                } else {
+                    if (clipCount > 0 && archiveWritable) addAll(listOf(BarAction.PASTE, BarAction.DISCARD_CLIP))
+                    add(BarAction.EXTRACT_ALL)
+                    if (archiveWritable) add(BarAction.NEW_FOLDER)
+                    add(BarAction.SORT)
+                }
+            }
+        }
         if (picking) {
             return buildList {
                 if (selectedCount > 0) add(BarAction.PICK_UPLOAD)
@@ -93,6 +111,7 @@ object ExplorerRules {
         BarAction.MOVE -> "Mover"
         BarAction.RENAME -> "Renombrar"
         BarAction.EXTRACT -> "Extraer"
+        BarAction.EXTRACT_ALL -> "Extraer todo"
         BarAction.DELETE -> "Borrar"
         BarAction.SELECT_ALL -> "Todo"
         BarAction.PASTE -> "Pegar aquí ($clipCount)"
@@ -102,6 +121,9 @@ object ExplorerRules {
     }
 
     fun selectionCount(n: Int) = if (n == 1) "1 elemento" else "$n elementos"
+
+    fun archiveTitle(archiveName: String, inner: String) = ArchiveRules.title(archiveName, inner)
+    fun archivePath(archiveName: String, inner: String) = ArchiveRules.shownPath(archiveName, inner)
 
     fun title(picking: Boolean, atRoot: Boolean, dirName: String): String {
         val base = if (atRoot) "Almacenamiento" else dirName
@@ -129,5 +151,6 @@ object ExplorerRules {
     fun failure(message: String?, type: String) = "No se pudo: " + (message ?: type)
 
     /** Nombre de la carpeta donde se extrae un zip: el nombre sin «.zip». */
-    fun zipFolderName(zipName: String) = zipName.removeSuffix(".zip").removeSuffix(".ZIP")
+    fun zipFolderName(zipName: String) =
+        zipName.removeSuffix(".zip").removeSuffix(".ZIP").removeSuffix(".rar").removeSuffix(".RAR")
 }

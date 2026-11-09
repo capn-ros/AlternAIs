@@ -1,5 +1,6 @@
 package app.claudeck
 
+import app.claudeck.domain.usecase.ArchiveRules
 import app.claudeck.domain.usecase.FileNames
 import app.claudeck.domain.usecase.FileType
 import app.claudeck.domain.usecase.SizeFormat
@@ -22,6 +23,9 @@ class FileEntry(val file: File, val isDir: Boolean, val size: Long, val modified
     val name: String get() = file.name
     val kind: FileKind get() = FileKind.of(file.name, isDir)
     val isZip: Boolean get() = !isDir && file.name.lowercase(Locale.ROOT).endsWith(".zip")
+
+    /** .zip o .rar: se puede entrar y ver lo que tiene adentro. */
+    val isArchive: Boolean get() = !isDir && ArchiveRules.isArchive(file.name)
 }
 
 /** Tipo de archivo según la extensión: decide el color del ícono en el explorador. */
@@ -52,6 +56,11 @@ object FileOps {
         val entries = files
             .filter { !FileNames.isHidden(it.name) }
             .map { FileEntry(it, it.isDirectory, if (it.isDirectory) 0L else it.length(), it.lastModified()) }
+        return sortEntries(entries, sort)
+    }
+
+    /** Carpetas primero y después según el orden elegido (también para lo que hay dentro de un .zip). */
+    fun sortEntries(entries: List<FileEntry>, sort: SortMode): List<FileEntry> {
         val byKind = compareByDescending<FileEntry> { it.isDir }
         val cmp: Comparator<FileEntry> = when (sort) {
             SortMode.NAME -> byKind.then(compareBy<FileEntry> { it.name.lowercase(Locale.ROOT) })

@@ -3,6 +3,10 @@
     <RootNamespace>AlternAIs.Infrastructure</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Leer .rar (solo lectura) -->
+    <PackageReference Include="SharpCompress" Version="0.38.0" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\AlternAIs.Application\AlternAIs.Application.csproj" />
   </ItemGroup>
 </Project>

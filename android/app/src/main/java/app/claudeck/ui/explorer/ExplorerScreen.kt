@@ -63,6 +63,7 @@ import app.claudeck.FileEntry
 import app.claudeck.FileKind
 import app.claudeck.FileOps
 import app.claudeck.R
+import app.claudeck.domain.usecase.ArchiveRules
 import app.claudeck.domain.usecase.BarAction
 import app.claudeck.domain.usecase.ExplorerRules
 import app.claudeck.ui.theme.AlternTheme
@@ -94,6 +95,10 @@ interface ExplorerActions {
     fun newFolder(name: String)
     /** [inFolder] = true extrae dentro de una carpeta nueva con el nombre del zip. */
     fun extract(zip: File, inFolder: Boolean)
+    /** Dentro de un .zip/.rar: extrae lo elegido en una carpeta junto al archivo. */
+    fun extractEntries(files: List<File>)
+    /** Entra en un .zip/.rar y muestra lo que tiene adentro como si fuera una carpeta. */
+    fun openArchive(f: File)
     /** Miniatura de una imagen o video (puede tardar: se llama desde un hilo de fondo). */
     fun thumbnail(e: FileEntry, px: Int): Bitmap?
 }
@@ -141,11 +146,13 @@ fun ExplorerScreen(
             }
             Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
                 Text(
-                    ExplorerRules.title(state.picking, atRoot, state.dir.name),
+                    state.archive?.let { ExplorerRules.archiveTitle(it.name, state.inner) }
+                        ?: ExplorerRules.title(state.picking, atRoot, state.dir.name),
                     color = fg, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    ExplorerRules.relativePath(state.dir.path, state.storageRoot.path),
+                    state.archive?.let { ExplorerRules.archivePath(it.name, state.inner) }
+                        ?: ExplorerRules.relativePath(state.dir.path, state.storageRoot.path),
                     color = muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
             }
@@ -158,7 +165,8 @@ fun ExplorerScreen(
         // Barra de acciones (cambia si hay selección o portapapeles).
         val bar = ExplorerRules.barActions(
             state.hasAccess, state.picking, state.selected.size,
-            only != null && only.isFile && only.name.lowercase().endsWith(".zip"), state.clip.size
+            only != null && only.isFile && ArchiveRules.isArchive(only.name), state.clip.size,
+            inArchive = state.archive != null, archiveWritable = state.archiveWritable
         )
         if (bar.isNotEmpty()) {
             Row(
@@ -183,7 +191,10 @@ fun ExplorerScreen(
                             BarAction.COPY -> actions.setClip(state.selected.toList(), false)
                             BarAction.MOVE -> actions.setClip(state.selected.toList(), true)
                             BarAction.RENAME -> only?.let { dlg = Dlg.Rename(it) }
-                            BarAction.EXTRACT -> only?.let { dlg = Dlg.Zip(it) }
+                            BarAction.EXTRACT ->
+                                if (state.archive != null) actions.extractEntries(state.selected.toList())
+                                else only?.let { dlg = Dlg.Zip(it) }
+                            BarAction.EXTRACT_ALL -> state.archive?.let { actions.extract(it, true) }
                             BarAction.DELETE -> if (state.selected.isNotEmpty()) dlg = Dlg.Delete(state.selected.toList())
                             BarAction.SELECT_ALL -> actions.selectAll()
                             BarAction.CANCEL_SELECTION -> actions.clearSelection()
@@ -286,6 +297,8 @@ fun ExplorerScreen(
             val targets = if (state.selected.contains(e.file)) state.selected.toList() else listOf(e.file)
             val multi = targets.size > 1
             val ext = e.file.extension.lowercase()
+            val inArc = state.archive != null
+            val readOnly = inArc && !state.archiveWritable
             AlertDialog(
                 onDismissRequest = close,
                 containerColor = surface, titleContentColor = muted, textContentColor = fg,
@@ -300,20 +313,21 @@ fun ExplorerScreen(
                             } else {
                                 MenuRow("Abrir", R.drawable.ic_file, fg, accent) {
                                     close()
-                                    if (e.isZip) dlg = Dlg.Zip(e.file) else actions.openFile(e.file, false, true)
+                                    if (e.isArchive && !inArc) actions.openArchive(e.file) else actions.openFile(e.file, false, true)
                                 }
                             }
                             if (!e.isDir) {
                                 MenuRow("Abrir con…", R.drawable.ic_forward, fg, accent) { close(); actions.openFile(e.file, false, true) }
                                 MenuRow("Abrir como texto", R.drawable.ic_edit, fg, accent) { close(); actions.openFile(e.file, true, true) }
                             }
-                            if (e.isZip) MenuRow("Extraer", R.drawable.ic_zip, fg, accent) { dlg = Dlg.Zip(e.file) }
+                            if (e.isArchive && !inArc) MenuRow("Extraer", R.drawable.ic_zip, fg, accent) { dlg = Dlg.Zip(e.file) }
                         }
                         if (!state.selected.contains(e.file)) MenuRow("Seleccionar", R.drawable.ic_check, fg, accent) { close(); actions.toggle(e.file) }
                         MenuRow("Copiar", R.drawable.ic_copy, fg, accent) { close(); actions.setClip(targets, false) }
-                        MenuRow("Mover", R.drawable.ic_move, fg, accent) { close(); actions.setClip(targets, true) }
-                        if (!multi) MenuRow("Renombrar", R.drawable.ic_edit, fg, accent) { dlg = Dlg.Rename(e.file) }
-                        MenuRow("Borrar", R.drawable.ic_trash, fg, DeleteRed) { dlg = Dlg.Delete(targets) }
+                        if (!inArc) MenuRow("Mover", R.drawable.ic_move, fg, accent) { close(); actions.setClip(targets, true) }
+                        if (inArc) MenuRow("Extraer", R.drawable.ic_zip, fg, accent) { close(); actions.extractEntries(targets) }
+                        if (!multi && !readOnly) MenuRow("Renombrar", R.drawable.ic_edit, fg, accent) { dlg = Dlg.Rename(e.file) }
+                        if (!readOnly) MenuRow("Borrar", R.drawable.ic_trash, fg, DeleteRed) { dlg = Dlg.Delete(targets) }
                     }
                 },
                 confirmButton = {}
@@ -341,6 +355,7 @@ fun ExplorerScreen(
                 title = { Text(d.file.name, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 text = {
                     Column {
+                        OptionRow("Ver lo que tiene adentro", fg) { close(); actions.openArchive(d.file) }
                         OptionRow("Extraer en una carpeta «$base»", fg) { close(); actions.extract(d.file, true) }
                         OptionRow("Extraer aquí", fg) { close(); actions.extract(d.file, false) }
                         OptionRow("Abrir con otra app", fg) { close(); actions.openFile(d.file, false, true) }
@@ -361,7 +376,7 @@ private fun barIcon(a: BarAction): Int = when (a) {
     BarAction.COPY -> R.drawable.ic_copy
     BarAction.MOVE -> R.drawable.ic_move
     BarAction.RENAME -> R.drawable.ic_edit
-    BarAction.EXTRACT -> R.drawable.ic_zip
+    BarAction.EXTRACT, BarAction.EXTRACT_ALL -> R.drawable.ic_zip
     BarAction.DELETE -> R.drawable.ic_trash
     BarAction.SELECT_ALL -> R.drawable.ic_select_all
     BarAction.PASTE -> R.drawable.ic_paste

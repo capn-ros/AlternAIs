@@ -51,7 +51,7 @@ Qué tiene (igual que la versión de siempre):
 - Animación del logo al abrir y logo en bucle mientras carga una cuenta.
 - Barra de título propia con la **barra de tiempo** de la cuenta activa («Trabajo · faltan 2 h 10 min»).
 - Barra de cuentas a la izquierda, derecha o abajo; Claude y Replit con sus cuentas y su tema (tocá el logo de Ajustes para alternar oscuro/claro).
-- **Explorador de archivos** (Ctrl+E): lugares rápidos, abrir/ejecutar, copiar, mover, renombrar, borrar a la Papelera, carpeta nueva y extraer .zip. Clic derecho = opciones; Supr, F2, Enter, Retroceso, Ctrl+C/X/V, Ctrl+Mayús+N.
+- **Explorador de archivos** (Ctrl+E): lugares rápidos, abrir/ejecutar, copiar, mover, renombrar, borrar a la Papelera, carpeta nueva y extraer .zip. Un .zip o .rar se abre por dentro como una carpeta (los .zip se pueden modificar; los .rar solo se ven y se extraen). Clic derecho = opciones; Supr, F2, Enter, Retroceso, Ctrl+C/X/V, Ctrl+Mayús+N.
 - Mensajes guardados (Ctrl+M, con «Texto propio…»), navegador interno (Ctrl+B) y ajustes (Ctrl+,).
 - **Bandeja del sistema**: en Ajustes → «Al cerrar la ventana» → «Seguir en la bandeja». Clic en el ícono abre; clic derecho muestra las cuentas con su cuenta regresiva y «Salir».
 - Aviso de fin de descanso con caja para **responder desde el aviso** y los dos primeros mensajes guardados como botones; respuesta automática al marcar el límite (mensaje guardado, texto propio o ninguna).

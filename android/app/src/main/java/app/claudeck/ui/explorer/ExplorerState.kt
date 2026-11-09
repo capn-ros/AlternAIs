@@ -23,5 +23,10 @@ class ExplorerState(val storageRoot: File, val downloads: File, startDir: File) 
     /** Un toque en un .zip pide mostrar sus opciones; la pantalla lo atiende y lo limpia. */
     var zipPrompt by mutableStateOf<File?>(null)
 
-    fun atRoot(): Boolean = dir.canonicalPath == storageRoot.canonicalPath
+    /** Si no es null, se está mirando por dentro de este .zip/.rar; [inner] es la carpeta interna («» = raíz). */
+    var archive by mutableStateOf<File?>(null)
+    var inner by mutableStateOf("")
+    var archiveWritable by mutableStateOf(false)
+
+    fun atRoot(): Boolean = archive == null && dir.canonicalPath == storageRoot.canonicalPath
 }

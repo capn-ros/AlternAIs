@@ -19,6 +19,8 @@ import android.widget.LinearLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import app.claudeck.domain.usecase.ArchiveItem
+import app.claudeck.domain.usecase.ArchiveRules
 import app.claudeck.domain.usecase.BackAction
 import app.claudeck.domain.usecase.ExplorerRules
 import app.claudeck.domain.usecase.ItemAction
@@ -54,6 +56,12 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
     private val downloads: File = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
     private val state = ExplorerState(storageRoot, downloads, if (downloads.exists()) downloads else storageRoot)
     private var clipCut = false
+
+    /** Carpeta temporal para lo que se saca de un .zip/.rar (abrir un archivo, copiar hacia afuera). Se vacía al crear el explorador. */
+    private val tempRoot = File(act.cacheDir, "archive_tmp").also { it.deleteRecursively() }
+
+    /** Listado completo del .zip/.rar abierto (null = hay que volver a leerlo). */
+    private var archiveItems: List<ArchiveItem>? = null
 
     /** Modo «subir archivo»: una página pidió adjuntar archivos y se eligen acá (varios a la vez). */
     private class PickRequest(val accept: List<String>, val onDone: (List<File>?) -> Unit)
@@ -96,6 +104,7 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
     fun isPicking(): Boolean = pick != null
 
     fun startPick(accept: List<String>, onDone: (List<File>?) -> Unit) {
+        closeArchiveState()
         pick?.onDone?.invoke(null)
         pick = PickRequest(accept.filter { it.isNotBlank() }, onDone)
         state.picking = true
@@ -143,6 +152,10 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
             state.unreadable = false
             return
         }
+        if (state.archive != null) {
+            if (archiveItems == null) loadArchive() else showArchive()
+            return
+        }
         val l = FileOps.list(state.dir, state.sort)
         state.unreadable = l == null
         state.entries = when {
@@ -154,7 +167,92 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
         state.selected = state.selected.filter { it in present }.toCollection(LinkedHashSet())
     }
 
+    // ---------------------------------------------------------------- Dentro de un .zip / .rar
+
+    private fun openArchive(f: File) {
+        state.archive = f
+        state.inner = ""
+        state.archiveWritable = ArchiveRules.isWritable(f.name)
+        state.selected = emptySet()
+        state.entries = emptyList()
+        state.scrollTop++
+        archiveItems = null
+        if (!state.archiveWritable) host.message(ArchiveRules.RAR_NOTE)
+        refresh()
+    }
+
+    /** Deja de mirar por dentro del archivo sin tocar la lista de carpetas. */
+    private fun closeArchiveState() {
+        state.archive = null
+        state.inner = ""
+        archiveItems = null
+    }
+
+    private fun exitArchive() {
+        closeArchiveState()
+        state.selected = emptySet()
+        state.scrollTop++
+        refresh()
+    }
+
+    private fun loadArchive() {
+        val a = state.archive ?: return
+        state.busy = true
+        Thread {
+            val r = runCatching { ArchiveOps.list(a) }
+            act.runOnUiThread {
+                state.busy = false
+                if (state.archive != a) return@runOnUiThread
+                val items = r.getOrNull()
+                if (items == null) {
+                    val e = r.exceptionOrNull()
+                    host.message("No se pudo abrir «${a.name}»: " + (e?.message ?: e?.javaClass?.simpleName ?: ""))
+                    exitArchive()
+                } else {
+                    archiveItems = items
+                    showArchive()
+                }
+            }
+        }.start()
+    }
+
+    private fun showArchive() {
+        val a = state.archive ?: return
+        state.unreadable = false
+        val list = ArchiveRules.children(archiveItems ?: emptyList(), state.inner).map {
+            FileEntry(File(ArchiveRules.virtualPath(a.path, it.path)), it.isDir, it.size, it.modified)
+        }
+        state.entries = FileOps.sortEntries(list, state.sort)
+        val present = state.entries.map { it.file }.toSet()
+        state.selected = state.selected.filter { it in present }.toCollection(LinkedHashSet())
+    }
+
+    private fun innerOf(f: File): String? = state.archive?.let { ArchiveRules.innerOf(it.path, f.path) }
+
+    /** Saca un archivo de adentro del .zip/.rar a la carpeta temporal y lo abre con la app que corresponda. */
+    private fun openFromArchive(a: File, inner: String, asText: Boolean, chooser: Boolean) {
+        state.busy = true
+        Thread {
+            val r = runCatching { ArchiveOps.extractOne(a, inner, tempRoot) }
+            act.runOnUiThread {
+                state.busy = false
+                val f = r.getOrNull()
+                if (f != null) openFile(f, asText, chooser)
+                else host.message(ExplorerRules.failure(r.exceptionOrNull()?.message, r.exceptionOrNull()?.javaClass?.simpleName ?: ""))
+            }
+        }.start()
+    }
+
     private fun navigate(d: File) {
+        if (state.archive != null) {
+            innerOf(d)?.let {
+                state.inner = it
+                state.selected = emptySet()
+                state.scrollTop++
+                refresh()
+            }
+            return
+        }
         state.dir = d
         state.selected = emptySet()
         state.scrollTop++
@@ -162,6 +260,17 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
     }
 
     private fun goUp() {
+        if (state.archive != null) {
+            if (state.inner.isEmpty()) {
+                exitArchive()
+            } else {
+                state.inner = ArchiveRules.parentInner(state.inner)
+                state.selected = emptySet()
+                state.scrollTop++
+                refresh()
+            }
+            return
+        }
         if (!state.atRoot()) state.dir.parentFile?.let { navigate(it) }
     }
 
@@ -199,6 +308,12 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
 
     /** Abre el archivo con la app que corresponda (o instala un .apk). `asText` lo fuerza como texto; `chooser` deja elegir app. */
     private fun openFile(f: File, asText: Boolean = false, chooser: Boolean = true) {
+        val arc = state.archive
+        val inner = innerOf(f)
+        if (arc != null && inner != null) {
+            openFromArchive(arc, inner, asText, chooser)
+            return
+        }
         try {
             val uri = FileProvider.getUriForFile(act, act.packageName + ".files", f)
             val ext = f.extension.lowercase()
@@ -256,15 +371,20 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
         override fun close() = host.close()
         override fun goUp() = this@FileExplorer.goUp()
         override fun openFolder(dir: File) = navigate(dir)
-        override fun goDownloads() { if (downloads.exists()) navigate(downloads) }
-        override fun goStorage() = navigate(storageRoot)
+        override fun goDownloads() {
+            if (downloads.exists()) { closeArchiveState(); navigate(downloads) }
+        }
+        override fun goStorage() {
+            closeArchiveState()
+            navigate(storageRoot)
+        }
 
         override fun itemClick(e: FileEntry) {
-            when (ExplorerRules.itemAction(pick != null, state.selected.isNotEmpty(), e.isDir, e.isZip)) {
+            when (ExplorerRules.itemAction(pick != null, state.selected.isNotEmpty(), e.isDir, e.isArchive)) {
                 ItemAction.OPEN_FOLDER -> navigate(e.file)
                 ItemAction.TOGGLE_SELECTION -> toggle(e.file)
-                // La pantalla muestra el diálogo del zip con un toque largo; con un toque simple se abre con otra app.
-                ItemAction.ZIP_OPTIONS -> zipTap(e.file)
+                // Un toque en un .zip/.rar entra a ver lo que tiene adentro (dentro de uno, un archivo comprimido se abre afuera).
+                ItemAction.ZIP_OPTIONS -> if (state.archive != null) this@FileExplorer.openFile(e.file) else openArchive(e.file)
                 ItemAction.OPEN_FILE -> this@FileExplorer.openFile(e.file)
             }
         }
@@ -284,6 +404,20 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
         }
 
         override fun setClip(files: List<File>, cut: Boolean) {
+            val arc = state.archive
+            if (arc != null) {
+                // Desde adentro del .zip/.rar solo se copia: se extrae a la carpeta temporal y eso queda en el portapapeles.
+                val inners = files.mapNotNull { innerOf(it) }
+                runAsync {
+                    val dest = File(tempRoot, "copia" + java.lang.Long.toHexString(System.nanoTime()))
+                    ArchiveOps.extract(arc, inners, dest)
+                    val out = dest.listFiles()?.toList() ?: emptyList()
+                    state.clip = out
+                    clipCut = false
+                    ArchiveRules.copiedOut(out.size)
+                }
+                return
+            }
             state.clip = files
             clipCut = cut
             state.selected = emptySet()
@@ -295,6 +429,21 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
         }
 
         override fun paste() {
+            val arc = state.archive
+            if (arc != null) {
+                if (!state.archiveWritable) return
+                val clipFiles = state.clip
+                val cutIt = clipCut
+                val inner = state.inner
+                if (cutIt) state.clip = emptyList()
+                archiveItems = null
+                runAsync {
+                    val n = ArchiveOps.add(arc, inner, clipFiles)
+                    if (cutIt) clipFiles.forEach { it.deleteRecursively() }
+                    ArchiveRules.added(n)
+                }
+                return
+            }
             val files = state.clip
             val cut = clipCut
             val target = state.dir
@@ -320,6 +469,16 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
         override fun openFile(f: File, asText: Boolean, chooser: Boolean) = this@FileExplorer.openFile(f, asText, chooser)
 
         override fun delete(files: List<File>) {
+            val arc = state.archive
+            if (arc != null) {
+                val inners = files.mapNotNull { innerOf(it) }
+                archiveItems = null
+                runAsync {
+                    val n = ArchiveOps.delete(arc, inners)
+                    ArchiveRules.removed(n)
+                }
+                return
+            }
             runAsync {
                 var n = 0
                 for (f in files) {
@@ -330,6 +489,13 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
         }
 
         override fun rename(f: File, name: String) {
+            val arc = state.archive
+            if (arc != null) {
+                val inner = innerOf(f) ?: return
+                archiveItems = null
+                runAsync { ExplorerRules.renamed(ArchiveOps.rename(arc, inner, name)) }
+                return
+            }
             runAsync {
                 val n = FileOps.rename(f, name)
                 ExplorerRules.renamed(n.name)
@@ -337,6 +503,13 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
         }
 
         override fun newFolder(name: String) {
+            val arc = state.archive
+            if (arc != null) {
+                val inner = state.inner
+                archiveItems = null
+                runAsync { ExplorerRules.folderCreated(ArchiveOps.mkdir(arc, inner, name)) }
+                return
+            }
             val parent = state.dir
             runAsync {
                 val n = FileOps.mkdir(parent, name)
@@ -348,23 +521,32 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
             val parent = zip.parentFile ?: state.dir
             val dest = if (inFolder) FileOps.uniqueFile(parent, ExplorerRules.zipFolderName(zip.name)) else parent
             runAsync {
-                val n = FileOps.unzip(zip, dest)
+                val n = if (ArchiveRules.isRar(zip.name)) ArchiveOps.extract(zip, emptyList(), dest) else FileOps.unzip(zip, dest)
                 ExplorerRules.extracted(n, dest.name)
             }
         }
 
+        override fun extractEntries(files: List<File>) {
+            val arc = state.archive ?: return
+            val inners = files.mapNotNull { innerOf(it) }
+            val parent = arc.parentFile ?: state.dir
+            val dest = FileOps.uniqueFile(parent, ExplorerRules.zipFolderName(arc.name))
+            runAsync {
+                val n = ArchiveOps.extract(arc, inners, dest)
+                ExplorerRules.extracted(n, dest.name)
+            }
+        }
+
+        override fun openArchive(f: File) = this@FileExplorer.openArchive(f)
+
         override fun thumbnail(e: FileEntry, px: Int): Bitmap? {
+            if (state.archive != null) return null
             val key = e.file.absolutePath + "|" + e.modified
             thumbCache.get(key)?.let { return it }
             val b = loadThumb(e.file, e.kind, px) ?: return null
             thumbCache.put(key, b)
             return b
         }
-    }
-
-    /** Un toque en un .zip abre las opciones (extraer / abrir con otra app); lo pide la pantalla con un diálogo. */
-    private fun zipTap(zip: File) {
-        state.zipPrompt = zip
     }
 
     // El marco se arma al final: usa `actions`, que se inicializa arriba.

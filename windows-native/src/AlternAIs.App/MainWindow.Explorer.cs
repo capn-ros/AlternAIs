@@ -37,6 +37,13 @@ public sealed partial class MainWindow
     private bool _fxClipCut;
     private int _fxStatusToken;
 
+    // Dentro de un .zip/.rar: el archivo abierto, la carpeta interna ("" = raíz) y su listado completo (null = hay que leerlo).
+    private string? _fxArchive;
+    private string _fxInner = "";
+    private IReadOnlyList<ArchiveItem>? _fxArchiveItems;
+    private static readonly string FxTemp = Path.Combine(Path.GetTempPath(), "AlternAIs", "archive_tmp");
+    private bool ArchiveWritable => _fxArchive is not null && ArchiveRules.IsWritable(_fxArchive);
+
     private static readonly Dictionary<FileType, (string Glyph, Windows.UI.Color Color)> FileLook = new()
     {
         [FileType.Folder] = ("", Palette.Rgb(0xF2, 0xB0, 0x1E)),
@@ -69,6 +76,7 @@ public sealed partial class MainWindow
     private UIElement EnsureExplorer(Palette pal)
     {
         if (_fxPanel is not null) return _fxPanel;
+        try { if (Directory.Exists(FxTemp)) Directory.Delete(FxTemp, recursive: true); } catch (Exception) { /* en uso: no importa */ }
 
         // Cabecera: subir · «Archivos» + ruta · abrir en el Explorador · cerrar
         _fxUp.Content = new FontIcon { Glyph = "", FontSize = 15 };
@@ -165,12 +173,38 @@ public sealed partial class MainWindow
 
     private void ExplorerGo(string dir)
     {
+        _fxArchive = null;
+        _fxInner = "";
+        _fxArchiveItems = null;
         _fxDir = dir;
+        RefreshExplorer();
+    }
+
+    private void OpenArchive(string path)
+    {
+        _fxArchive = path;
+        _fxInner = "";
+        _fxArchiveItems = null;
+        if (!ArchiveRules.IsWritable(path)) ExplorerStatus(ArchiveRules.RarNote);
         RefreshExplorer();
     }
 
     private void ExplorerUp()
     {
+        if (_fxArchive is not null)
+        {
+            if (_fxInner.Length == 0)
+            {
+                _fxArchive = null;
+                _fxArchiveItems = null;
+            }
+            else
+            {
+                _fxInner = ArchiveRules.ParentInner(_fxInner);
+            }
+            RefreshExplorer();
+            return;
+        }
         var parent = FileOps.Parent(_fxDir);
         if (parent is not null) ExplorerGo(parent);
     }
@@ -178,6 +212,11 @@ public sealed partial class MainWindow
     private void RefreshExplorer()
     {
         if (_fxList is null) return;
+        if (_fxArchive is not null)
+        {
+            _ = RefreshArchiveAsync();
+            return;
+        }
         IReadOnlyList<FileEntry> entries;
         try
         {
@@ -201,14 +240,57 @@ public sealed partial class MainWindow
         _fxPaste.Content = _fxClip.Count > 0 ? (_fxClipCut ? "Mover acá (" : "Pegar (") + _fxClip.Count + ")" : "Pegar";
         _fxPaste.IsEnabled = _fxClip.Count > 0;
 
+        FillExplorerList(entries, allowThumbnails: true);
+        if (entries.Count == 0) ExplorerStatus("Carpeta vacía");
+    }
+
+    private void FillExplorerList(IReadOnlyList<FileEntry> entries, bool allowThumbnails)
+    {
+        if (_fxList is null) return;
         _fxList.Items.Clear();
         var thumbs = 0;
         foreach (var e in entries)
         {
-            var thumb = !e.IsDir && thumbs < MaxThumbnails && FileTypes.HasThumbnail(e.Name);
+            var thumb = allowThumbnails && !e.IsDir && thumbs < MaxThumbnails && FileTypes.HasThumbnail(e.Name);
             if (thumb) thumbs++;
             _fxList.Items.Add(ExplorerRow(e, thumb));
         }
+    }
+
+    /// <summary>Muestra lo que hay dentro del .zip/.rar abierto (lo lee una sola vez, fuera del hilo de la pantalla).</summary>
+    private async Task RefreshArchiveAsync()
+    {
+        var arc = _fxArchive;
+        if (arc is null || _fxList is null) return;
+        if (_fxArchiveItems is null)
+        {
+            try
+            {
+                var items = await Task.Run(() => ArchiveOps.List(arc));
+                if (_fxArchive != arc) return;
+                _fxArchiveItems = items;
+            }
+            catch (Exception ex)
+            {
+                ExplorerStatus("No se pudo abrir «" + Path.GetFileName(arc) + "»: " + ex.Message);
+                _fxArchive = null;
+                _fxInner = "";
+                RefreshExplorer();
+                return;
+            }
+        }
+        var entries = FileOrder.Sort(
+            ArchiveRules.Children(_fxArchiveItems, _fxInner)
+                .Select(i => new FileEntry(i.Path[(i.Path.LastIndexOf('/') + 1)..], ArchiveRules.VirtualPath(arc, i.Path), i.IsDir, i.Size, i.ModifiedMs)),
+            _fxSort);
+        var shown = ArchiveRules.ShownPath(Path.GetFileName(arc), _fxInner);
+        _fxPath.Text = shown;
+        ToolTipService.SetToolTip(_fxPath, shown);
+        _fxUp.IsEnabled = true;
+        _fxSortButton.Content = "Orden: " + FileOrder.Label(_fxSort);
+        _fxPaste.Content = _fxClip.Count > 0 ? "Pegar aquí (" + _fxClip.Count + ")" : "Pegar";
+        _fxPaste.IsEnabled = _fxClip.Count > 0 && ArchiveWritable;
+        FillExplorerList(entries, allowThumbnails: false);
         if (entries.Count == 0) ExplorerStatus("Carpeta vacía");
     }
 
@@ -321,32 +403,85 @@ public sealed partial class MainWindow
         var multi = sel.Count > 1;
         menu.Items.Add(new MenuFlyoutItem { Text = multi ? sel.Count + " elementos" : sel[0].Name, IsEnabled = false });
         menu.Items.Add(new MenuFlyoutSeparator());
+        if (_fxArchive is not null)
+        {
+            // Dentro de un .zip/.rar: copiar hacia afuera y extraer siempre; modificar solo en .zip.
+            if (!multi)
+            {
+                var inside = sel[0];
+                Item(inside.IsDir ? "Abrir carpeta" : "Abrir", "\uE8E5", () => ExplorerOpen(inside));
+            }
+            Item("Copiar", "\uE8C8", () => ExplorerSetClip(cut: false));
+            Item("Extraer en una carpeta junto al archivo", "\uE7B8", () => _ = ExplorerExtractEntriesAsync(sel));
+            if (ArchiveWritable)
+            {
+                if (!multi) Item("Renombrar", "\uE8AC", () => _ = ExplorerRenameAsync());
+                Item("Quitar del archivo comprimido", "\uE74D", () => _ = ExplorerDeleteAsync());
+            }
+            return menu;
+        }
         if (!multi)
         {
             var e = sel[0];
-            Item(e.IsDir ? "Abrir carpeta" : e.Type == FileType.Exe ? "Ejecutar" : "Abrir", "", () => ExplorerOpen(e));
-            Item("Mostrar en el Explorador", "", () => Reveal(e.FullPath));
-            if (FileTypes.IsZip(e.Name))
+            var isArchive = !e.IsDir && ArchiveRules.IsArchive(e.Name);
+            if (isArchive) Item("Ver lo que tiene adentro", "\uE8E5", () => OpenArchive(e.FullPath));
+            Item(e.IsDir ? "Abrir carpeta" : isArchive ? "Abrir con la app predeterminada" : e.Type == FileType.Exe ? "Ejecutar" : "Abrir", "\uE8E5",
+                () => { if (isArchive) Shell(e.FullPath); else ExplorerOpen(e); });
+            Item("Mostrar en el Explorador", "\uE838", () => Reveal(e.FullPath));
+            if (isArchive)
             {
-                Item("Extraer en carpeta", "", () => _ = ExplorerExtractAsync(e, intoFolder: true));
-                Item("Extraer aquí", "", () => _ = ExplorerExtractAsync(e, intoFolder: false));
+                Item("Extraer en carpeta", "\uE7B8", () => _ = ExplorerExtractAsync(e, intoFolder: true));
+                Item("Extraer aquí", "\uE7B8", () => _ = ExplorerExtractAsync(e, intoFolder: false));
             }
         }
-        Item("Copiar", "", () => ExplorerSetClip(cut: false));
-        Item("Mover", "", () => ExplorerSetClip(cut: true));
-        if (!multi) Item("Renombrar", "", () => _ = ExplorerRenameAsync());
-        Item("Borrar (a la Papelera)", "", () => _ = ExplorerDeleteAsync());
+        Item("Copiar", "\uE8C8", () => ExplorerSetClip(cut: false));
+        Item("Mover", "\uE8C6", () => ExplorerSetClip(cut: true));
+        if (!multi) Item("Renombrar", "\uE8AC", () => _ = ExplorerRenameAsync());
+        Item("Borrar (a la Papelera)", "\uE74D", () => _ = ExplorerDeleteAsync());
         return menu;
     }
 
     private void ExplorerOpen(FileEntry e)
     {
+        if (_fxArchive is not null)
+        {
+            if (e.IsDir)
+            {
+                _fxInner = ArchiveRules.InnerOf(_fxArchive, e.FullPath) ?? _fxInner;
+                RefreshExplorer();
+            }
+            else if (ArchiveRules.InnerOf(_fxArchive, e.FullPath) is { } inner)
+            {
+                _ = ExplorerOpenFromArchiveAsync(_fxArchive, inner);
+            }
+            return;
+        }
         if (e.IsDir)
         {
             ExplorerGo(e.FullPath);
             return;
         }
+        // Un .zip/.rar se abre por dentro; «Abrir con la app predeterminada» está en el menú.
+        if (ArchiveRules.IsArchive(e.Name))
+        {
+            OpenArchive(e.FullPath);
+            return;
+        }
         Shell(e.FullPath);
+    }
+
+    /// <summary>Saca un archivo de adentro del .zip/.rar a una carpeta temporal y lo abre con la app predeterminada.</summary>
+    private async Task ExplorerOpenFromArchiveAsync(string archive, string inner)
+    {
+        try
+        {
+            var path = await Task.Run(() => ArchiveOps.ExtractOne(archive, inner, FxTemp));
+            Shell(path);
+        }
+        catch (Exception ex)
+        {
+            ExplorerStatus("No se pudo abrir: " + ex.Message);
+        }
     }
 
     /// <summary>Abre con la app predeterminada de Windows (ejecuta .exe/.bat, como «shell.openPath» de Electron).</summary>
@@ -372,9 +507,30 @@ public sealed partial class MainWindow
     {
         var sel = ExplorerSelection();
         if (sel.Count == 0) return;
+        if (_fxArchive is not null)
+        {
+            // Desde adentro del .zip/.rar solo se copia: se extrae a la carpeta temporal y eso queda en el portapapeles.
+            _ = ExplorerCopyOutAsync(_fxArchive, sel);
+            return;
+        }
         _fxClip = sel.Select(x => x.FullPath).ToList();
         _fxClipCut = cut;
         ExplorerStatus((cut ? "Para mover: " : "Para copiar: ") + sel.Count + ". Andá a la carpeta de destino y tocá «" + (cut ? "Mover acá" : "Pegar") + "» (Ctrl+V).");
+        RefreshExplorer();
+    }
+
+    private async Task ExplorerCopyOutAsync(string archive, List<FileEntry> sel)
+    {
+        var inners = sel.Select(x => ArchiveRules.InnerOf(archive, x.FullPath)).OfType<string>().ToList();
+        var dest = Path.Combine(FxTemp, "copia" + Guid.NewGuid().ToString("N"));
+        var ok = await ExplorerRun(() =>
+        {
+            ArchiveOps.Extract(archive, inners, dest);
+            return ArchiveRules.CopiedOut(inners.Count);
+        });
+        if (!ok) return;
+        _fxClip = Directory.Exists(dest) ? Directory.GetFileSystemEntries(dest).ToList() : [];
+        _fxClipCut = false;
         RefreshExplorer();
     }
 
@@ -402,6 +558,26 @@ public sealed partial class MainWindow
         var cut = _fxClipCut;
         var dest = _fxDir;
         if (cut) _fxClip = [];
+        if (_fxArchive is { } arc)
+        {
+            if (!ArchiveWritable) { ExplorerStatus(ArchiveRules.RarNote); return; }
+            var inner = _fxInner;
+            _fxArchiveItems = null;
+            await ExplorerRun(() =>
+            {
+                var n = ArchiveOps.Add(arc, inner, items);
+                if (cut)
+                {
+                    foreach (var p in items)
+                    {
+                        if (Directory.Exists(p)) Directory.Delete(p, recursive: true);
+                        else if (File.Exists(p)) File.Delete(p);
+                    }
+                }
+                return ArchiveRules.Added(n);
+            });
+            return;
+        }
         await ExplorerRun(() =>
         {
             foreach (var p in items)
@@ -417,6 +593,14 @@ public sealed partial class MainWindow
     {
         var name = await Dialogs.Text("Carpeta nueva", "Carpeta nueva", "Crear");
         if (name is null) return;
+        if (_fxArchive is { } arc)
+        {
+            if (!ArchiveWritable) { ExplorerStatus(ArchiveRules.RarNote); return; }
+            var inner = _fxInner;
+            _fxArchiveItems = null;
+            await ExplorerRun(() => "Carpeta «" + ArchiveOps.CreateFolder(arc, inner, name) + "» creada");
+            return;
+        }
         var dir = _fxDir;
         await ExplorerRun(() => "Carpeta «" + Path.GetFileName(FileOps.CreateFolder(dir, name)) + "» creada");
     }
@@ -426,6 +610,17 @@ public sealed partial class MainWindow
         var sel = ExplorerSelection();
         if (sel.Count != 1) return;
         var e = sel[0];
+        if (_fxArchive is { } arc)
+        {
+            if (!ArchiveWritable) { ExplorerStatus(ArchiveRules.RarNote); return; }
+            var inner = ArchiveRules.InnerOf(arc, e.FullPath);
+            if (inner is null) return;
+            var newName = await Dialogs.Text("Renombrar", e.Name, "Renombrar");
+            if (newName is null || newName == e.Name) return;
+            _fxArchiveItems = null;
+            await ExplorerRun(() => "Ahora se llama «" + ArchiveOps.Rename(arc, inner, newName) + "»");
+            return;
+        }
         var name = await Dialogs.Text("Renombrar", e.Name, "Renombrar");
         if (name is null || name == e.Name) return;
         await ExplorerRun(() => "Ahora se llama «" + Path.GetFileName(FileOps.Rename(e.FullPath, name)) + "»");
@@ -436,6 +631,15 @@ public sealed partial class MainWindow
         var sel = ExplorerSelection();
         if (sel.Count == 0) return;
         var what = sel.Count == 1 ? "«" + sel[0].Name + "»" : sel.Count + " elementos";
+        if (_fxArchive is { } arc)
+        {
+            if (!ArchiveWritable) { ExplorerStatus(ArchiveRules.RarNote); return; }
+            if (!await Dialogs.Confirm("Quitar", "¿Quitar " + what + " del archivo comprimido? No va a la Papelera: se borra de adentro del .zip.", "Quitar")) return;
+            var inners = sel.Select(x => ArchiveRules.InnerOf(arc, x.FullPath)).OfType<string>().ToList();
+            _fxArchiveItems = null;
+            await ExplorerRun(() => ArchiveRules.Removed(ArchiveOps.Delete(arc, inners)));
+            return;
+        }
         if (!await Dialogs.Confirm("Borrar", "¿Mandar " + what + " a la Papelera de reciclaje? Se pueden recuperar desde ahí.", "Borrar")) return;
         var done = 0;
         string? error = null;
@@ -460,7 +664,20 @@ public sealed partial class MainWindow
         var dest = intoFolder ? FileOps.ExtractFolderFor(zip.FullPath) : _fxDir;
         await ExplorerRun(() =>
         {
-            var n = FileOps.Extract(zip.FullPath, dest);
+            var n = ArchiveRules.IsRar(zip.Name) ? ArchiveOps.Extract(zip.FullPath, [], dest) : FileOps.Extract(zip.FullPath, dest);
+            return "Extraídos " + n + " archivos en «" + Path.GetFileName(dest.TrimEnd(Path.DirectorySeparatorChar)) + "»";
+        });
+    }
+
+    /// <summary>Dentro de un .zip/.rar: extrae lo elegido en una carpeta junto al archivo.</summary>
+    private async Task ExplorerExtractEntriesAsync(List<FileEntry> sel)
+    {
+        if (_fxArchive is not { } arc) return;
+        var inners = sel.Select(x => ArchiveRules.InnerOf(arc, x.FullPath)).OfType<string>().ToList();
+        var dest = FileOps.ExtractFolderFor(arc);
+        await ExplorerRun(() =>
+        {
+            var n = ArchiveOps.Extract(arc, inners, dest);
             return "Extraídos " + n + " archivos en «" + Path.GetFileName(dest.TrimEnd(Path.DirectorySeparatorChar)) + "»";
         });
     }
