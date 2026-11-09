@@ -25,6 +25,7 @@ public sealed partial class MainWindow
 
     private UIElement? _fxPanel;
     private ListView? _fxList;
+    private bool _fxSyncing;
     private readonly TextBlock _fxPath = new() { FontSize = 12, Opacity = 0.7, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly TextBlock _fxStatus = new() { FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(12, 0, 12, 4) };
     private readonly Button _fxUp = new();
@@ -130,6 +131,15 @@ public sealed partial class MainWindow
             SelectionMode = ListViewSelectionMode.Extended, IsItemClickEnabled = false, Margin = new Thickness(4, 0, 4, 8)
         };
         list.KeyDown += ExplorerKeyDown;
+        // La casilla de cada fila sigue a la selección de la lista (clic, Ctrl, Mayús, Ctrl+A).
+        list.SelectionChanged += (_, _) =>
+        {
+            _fxSyncing = true;
+            foreach (var item in list.Items.OfType<Grid>())
+                if (item.Children.OfType<CheckBox>().FirstOrDefault() is { } cb)
+                    cb.IsChecked = list.SelectedItems.Contains(item);
+            _fxSyncing = false;
+        };
         void Key(VirtualKey key, VirtualKeyModifiers mod, Action action)
         {
             var acc = new KeyboardAccelerator { Key = key, Modifiers = mod };
@@ -232,10 +242,25 @@ public sealed partial class MainWindow
         var row = new Grid { Tag = e, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), Padding = new Thickness(2, 3, 2, 3) };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(iconBox, 0);
         Grid.SetColumn(texts, 1);
         row.Children.Add(iconBox);
         row.Children.Add(texts);
+        // Casilla a la derecha para seleccionar varios archivos a la vez.
+        var check = new CheckBox
+        {
+            MinWidth = 0, Width = 32, Padding = new Thickness(0), Margin = new Thickness(4, 0, 4, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        check.Click += (_, _) =>
+        {
+            if (_fxSyncing || _fxList is null) return;
+            if (check.IsChecked == true) { if (!_fxList.SelectedItems.Contains(row)) _fxList.SelectedItems.Add(row); }
+            else _fxList.SelectedItems.Remove(row);
+        };
+        Grid.SetColumn(check, 2);
+        row.Children.Add(check);
         ToolTipService.SetToolTip(row, e.Name);
         row.DoubleTapped += (_, _) => ExplorerOpen(e);
         row.RightTapped += (_, args) =>

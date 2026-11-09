@@ -248,10 +248,27 @@ fun ExplorerScreen(
                                     color = muted, fontSize = 12.sp, maxLines = 1
                                 )
                             }
-                            Icon(
-                                painterResource(R.drawable.ic_check), null, tint = accent,
-                                modifier = Modifier.padding(start = 8.dp).size(22.dp).alpha(if (on) 1f else 0f)
-                            )
+                            // Checkbox a la derecha de cada elemento para seleccionar varios a la vez
+                            // (al subir archivos las carpetas no se pueden elegir).
+                            if (!(state.picking && e.isDir)) {
+                                Box(
+                                    Modifier.padding(start = 4.dp).size(40.dp)
+                                        .clickable { actions.toggle(e.file) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Box(
+                                        Modifier.size(22.dp).clip(RoundedCornerShape(6.dp))
+                                            .background(if (on) accent else Color.Transparent)
+                                            .border(2.dp, if (on) accent else muted, RoundedCornerShape(6.dp)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (on) Icon(
+                                            painterResource(R.drawable.ic_check), null, tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }

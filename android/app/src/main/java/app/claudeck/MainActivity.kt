@@ -1156,8 +1156,26 @@ class MainActivity : AppCompatActivity() {
 
     private fun snack(msg: String, action: String? = null, onAction: (() -> Unit)? = null) {
         val s = Snackbar.make(container, msg, Snackbar.LENGTH_LONG)
-        if (dock.visibility == View.VISIBLE) s.anchorView = dock
         if (action != null && onAction != null) s.setAction(action) { onAction() }
+        // Los avisos salen arriba (debajo de la barra de estado) en vez de abajo, sobre la barra de cuentas.
+        s.animationMode = Snackbar.ANIMATION_MODE_FADE
+        val v = s.view
+        val top = (androidx.core.view.ViewCompat.getRootWindowInsets(container)
+            ?.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())?.top ?: 0) + dp(8)
+        when (val lp = v.layoutParams) {
+            is android.widget.FrameLayout.LayoutParams -> {
+                lp.gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL
+                lp.topMargin = top
+                lp.bottomMargin = 0
+                v.layoutParams = lp
+            }
+            is androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams -> {
+                lp.gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL
+                lp.topMargin = top
+                lp.bottomMargin = 0
+                v.layoutParams = lp
+            }
+        }
         s.show()
     }
 

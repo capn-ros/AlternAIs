@@ -388,3 +388,8 @@ Pedido del dueño (2026-10-30): «la Android ya está, seguí con Windows; no lo
 - **Sin portar todavía**: alarmas con la app cerrada del todo (con bandeja sí avisa), miniaturas de video, «subir archivos con el explorador interno» (Windows usa su diálogo), descargas `blob:` especiales (WebView2 las maneja solo).
 - **Si falla la compilación de la app**: lo más probable está en lo que no se pudo verificar sin Windows: `Platform/TrayIcon.cs` (P/Invoke), `Notifier.cs` (API de `AppNotificationBuilder`), `MainWindow.Shell.cs` (`TeachingTip`, `AppWindow.Closing`), `MainWindow.Explorer.cs`. Corregir solo lo que diga el error.
 
+
+## Avisos arriba y casillas en el explorador (Android)
+- `MainActivity.snack()` ahora muestra los avisos (descargas, burbuja, etc.) **arriba**, debajo de la barra de estado, con fundido; ya no se anclan al dock.
+- Explorador (`ExplorerScreen.kt`): cada fila tiene a la derecha una **casilla** (checkbox dibujado a mano) que marca/desmarca con `actions.toggle`; al subir archivos las carpetas no la muestran. Mantener apretado y la barra de selección siguen igual.
+- Windows nativo (`MainWindow.Explorer.cs`): cada fila del explorador tiene a la derecha un `CheckBox` sincronizado con la selección del `ListView` (`_fxSyncing` evita el rebote). Sin compilar. Los avisos de Windows son notificaciones del sistema (posición la fija Windows) y la línea de estado del explorador: no hay avisos abajo para mover.
