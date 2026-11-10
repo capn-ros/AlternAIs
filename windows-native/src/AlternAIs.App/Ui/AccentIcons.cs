@@ -41,7 +41,7 @@ internal static class AccentIcons
     {
         try
         {
-            var res = Application.Current.Resources;
+            var res = Microsoft.UI.Xaml.Application.Current.Resources;
             var on = Palette.TextOnColor(accent);
             res["SystemAccentColor"] = accent;
             res["AccentFillColorDefaultBrush"] = new SolidColorBrush(accent);
