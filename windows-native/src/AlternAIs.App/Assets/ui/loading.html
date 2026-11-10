@@ -5,12 +5,16 @@
 <meta charset="utf-8">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #1c1917; }
+  html.light, html.light body { background: #ffffff; }
   #loop { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
   .splash-svg { width: min(40vh, 40vw, 320px); height: auto; overflow: visible; }
 </style>
 </head>
 <body>
 <div id="loop" aria-hidden="true"></div>
+<script>
+  if (location.search.indexOf("light=1") >= 0) { window.AlternLight = true; document.documentElement.className = "light"; }
+</script>
 <script src="splash.js"></script>
 <script>
   window.AlternLogo.mount(document.getElementById('loop'), { loop: true });

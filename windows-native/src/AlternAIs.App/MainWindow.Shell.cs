@@ -24,6 +24,7 @@ public sealed partial class MainWindow
 
     private readonly Grid _loadingLayer = new() { Background = new SolidColorBrush(Logo.Charcoal), Visibility = Visibility.Collapsed };
     private LogoWebView? _loadingLogo;
+    private bool _loadingDark = true;
     private long _loadingSince;
     private int _loadingShowToken;
     private int _loadingHideToken;
@@ -208,7 +209,7 @@ public sealed partial class MainWindow
                 {
                     _loadingLogo = new LogoWebView();
                     _loadingLayer.Children.Add(_loadingLogo.View);
-                    _ = _loadingLogo.StartAsync("loading.html");
+                    _ = _loadingLogo.StartAsync("loading.html", !CurrentPalette.Dark);
                 }
                 var token = ++_loadingShowToken;
                 await Task.Delay(25_000);
@@ -227,6 +228,18 @@ public sealed partial class MainWindow
         {
             _loadingLayer.Visibility = Visibility.Collapsed;
         }
+    }
+
+    /// <summary>El fondo del logo de carga sigue al tema: claro = blanco, oscuro = carbón. Se recrea al cambiar.</summary>
+    private void UpdateLoadingTheme(bool dark)
+    {
+        _loadingLayer.Background = new SolidColorBrush(dark ? Logo.Charcoal : Microsoft.UI.Colors.White);
+        if (_loadingLogo is null || _loadingDark == dark) { _loadingDark = dark; return; }
+        _loadingDark = dark;
+        _loadingLayer.Children.Clear();
+        _loadingLogo.Close();
+        _loadingLogo = null;
+        _loadingLayer.Visibility = Visibility.Collapsed;
     }
 
     // ---------------------------------------------------------------- Tutorial

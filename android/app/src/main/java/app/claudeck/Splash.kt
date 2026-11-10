@@ -28,9 +28,10 @@ import kotlin.math.sin
  * se dibuja letra a letra; en el bucle cada letra se voltea y cambia de color en cascada, al compás del logo
  * (ciclo de 2 vueltas). Se dibuja a mano; no usa recursos ni librerías.
  */
-class SplashLogoView(context: Context, private val loop: Boolean = false) : View(context) {
+class SplashLogoView(context: Context, private val loop: Boolean = false, private val light: Boolean = false) : View(context) {
     private val coral = 0xFFD97757.toInt()
-    private val cream = 0xFFF5EFE6.toInt()
+    // En tema claro la mitad crema y las letras crema pasan a carbón (sobre blanco no se verían).
+    private val cream = if (light) 0xFF1C1917.toInt() else 0xFFF5EFE6.toInt()
     private val dots = intArrayOf(0xFFE07A5F.toInt(), 0xFFF2A33A.toInt(), 0xFF81B29A.toInt(), 0xFF3FB0C4.toInt(), 0xFF9B72CF.toInt())
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rect = RectF()
@@ -73,7 +74,7 @@ class SplashLogoView(context: Context, private val loop: Boolean = false) : View
     var onDone: (() -> Unit)? = null
 
     init {
-        setBackgroundColor(0xFF1C1917.toInt())
+        setBackgroundColor(if (light) 0xFFFFFFFF.toInt() else 0xFF1C1917.toInt())
         isClickable = true
         if (!loop) setOnClickListener { finish() }
     }

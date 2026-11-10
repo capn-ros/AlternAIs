@@ -7,7 +7,8 @@
 (() => {
   const NS = 'http://www.w3.org/2000/svg';
   const CORAL = '#D97757';
-  const CREAM = '#F5EFE6';
+  // En tema claro (loading.html?light=1) lo crema pasa a carbón para que se vea sobre fondo blanco.
+  const CREAM = window.AlternLight ? '#1C1917' : '#F5EFE6';
   const DOTS = ['#E07A5F', '#F2A33A', '#81B29A', '#3FB0C4', '#9B72CF'];
   const TOTAL = 1700;
   const LOOP_START = 300;

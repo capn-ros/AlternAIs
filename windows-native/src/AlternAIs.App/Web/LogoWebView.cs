@@ -31,7 +31,7 @@ internal sealed class LogoWebView
     /// <paramref name="page"/>: intro.html o loading.html. Espera a que el control esté en pantalla
     /// (iniciar un WebView2 antes de eso puede no terminar nunca).
     /// </summary>
-    public async Task<bool> StartAsync(string page)
+    public async Task<bool> StartAsync(string page, bool light = false)
     {
         try
         {
@@ -55,7 +55,8 @@ internal sealed class LogoWebView
                 try { msg = e.TryGetWebMessageAsString(); } catch (Exception) { }
                 if (msg == "done") Finished?.Invoke();
             };
-            core.Navigate("https://" + Host + "/" + page);
+            if (light) View.DefaultBackgroundColor = Microsoft.UI.Colors.White;
+            core.Navigate("https://" + Host + "/" + page + (light ? "?light=1" : ""));
             return true;
         }
         catch (Exception)

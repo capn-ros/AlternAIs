@@ -1060,7 +1060,7 @@ class MainActivity : AppCompatActivity() {
         val want = currentId != null && loadingIds.contains(currentId) && !failed.contains(currentId)
         val v = loadingView
         if (want) {
-            val view = v ?: SplashLogoView(this, loop = true).also {
+            val view = v ?: SplashLogoView(this, loop = true, light = !store.dark).also {
                 loadingView = it
                 it.elevation = dp(2).toFloat()
                 container.addView(it, FrameLayout.LayoutParams(
@@ -1414,6 +1414,9 @@ class MainActivity : AppCompatActivity() {
         rebuildChips()
         updateInfo()
         retintIcons()
+        loadingView?.let { (it.parent as? ViewGroup)?.removeView(it); it.stopLoop() }
+        loadingView = null
+        loadingShownAt = 0L
         val keep = currentId
         accounts.forEach { acc ->
             webViews.remove(acc.id)?.let { wv ->
