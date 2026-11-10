@@ -42,7 +42,6 @@ import app.claudeck.ui.theme.AlternTheme
 
 /** Acciones que la pantalla le pide a quien la aloja (hoy MainActivity; después, un ViewModel de navegación). */
 interface SettingsActions {
-    fun selectService(service: AiService)
     fun toggleTheme()
     fun toggleBubble(turnOn: Boolean)
     fun reloadCurrent()
@@ -67,16 +66,15 @@ fun SettingsScreen(state: SettingsUiState, actions: SettingsActions) {
     val accent = Color(state.accent)
     val fg = Color(state.onSurface)
     Column(Modifier.fillMaxWidth()) {
-        // [ Claude ]  (logo)  [ Replit ]: tocar un nombre cambia de mitad; tocar el logo alterna oscuro/claro.
+        // Logo centrado: tocarlo alterna oscuro/claro.
         Row(
             Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
         ) {
-            ServiceTab(AiService.CLAUDE, state, accent, fg, Modifier.weight(1f)) { actions.selectService(AiService.CLAUDE) }
             AppLogo(Modifier.padding(horizontal = 8.dp).size(48.dp).clip(CircleShape)
                 .semantics { contentDescription = "Cambiar entre tema oscuro y claro" }
                 .clickable(role = Role.Button) { actions.toggleTheme() })
-            ServiceTab(AiService.REPLIT, state, accent, fg, Modifier.weight(1f)) { actions.selectService(AiService.REPLIT) }
         }
         Text(
             "Ajustes", color = accent, fontSize = 13.sp, fontWeight = FontWeight.Bold,
@@ -94,23 +92,6 @@ fun SettingsScreen(state: SettingsUiState, actions: SettingsActions) {
         SettingsRow(R.drawable.ic_upload, "Importar cuentas", accent, fg, actions::importAccounts)
         SettingsRow(R.drawable.ic_info, "Acerca de AlternAIs", accent, fg, actions::showAbout)
     }
-}
-
-@Composable
-private fun ServiceTab(
-    service: AiService, state: SettingsUiState, accent: Color, fg: Color, modifier: Modifier, onClick: () -> Unit
-) {
-    val active = state.service == service
-    Text(
-        text = service.label,
-        color = if (active) accent else fg.copy(alpha = 0.6f),
-        fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
-        modifier = modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(if (active) accent.copy(alpha = 0.18f) else Color.Transparent)
-            .clickable(role = Role.Tab, onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 10.dp)
-    )
 }
 
 @Composable

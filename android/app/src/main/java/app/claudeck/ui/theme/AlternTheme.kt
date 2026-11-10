@@ -8,7 +8,7 @@ import androidx.compose.ui.graphics.Color
 
 private val Brand = Color(0xFFD2694A)
 
-/** Tema de Compose. Claude va oscuro y Replit claro (lo decide quien la llama, igual que en la app actual). */
+/** Tema de Compose. Claude va oscuro por defecto (lo decide quien la llama). */
 @Composable
 fun AlternTheme(dark: Boolean, content: @Composable () -> Unit) {
     val scheme = if (dark) {

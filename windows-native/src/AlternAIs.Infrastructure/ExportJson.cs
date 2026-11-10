@@ -45,7 +45,7 @@ public static class ExportJson
         }.ToJsonString(Pretty);
     }
 
-    public static int CountAccounts(AppState state) => state.Claude.Accounts.Count + state.Replit.Accounts.Count;
+    public static int CountAccounts(AppState state) => state.Claude.Accounts.Count;
 
     /// <summary>Cuentas del archivo por servicio, o null si el texto no es un archivo válido o es demasiado grande.</summary>
     public static IReadOnlyDictionary<AiService, IReadOnlyList<ImportedAccount>>? Parse(string? json)

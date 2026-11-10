@@ -11,7 +11,7 @@ public sealed record TrayEntry(TrayEntryKind Kind, string Text, string? AccountI
 public sealed record TrayMenuModel(string Tooltip, IReadOnlyList<TrayEntry> Entries);
 
 /// <summary>
-/// Menú del ícono de la bandeja (igual que la versión Electron): abrir, cada cuenta de los dos servicios con su
+/// Menú del ícono de la bandeja (igual que la versión Electron): abrir, cada cuenta con su
 /// cuenta regresiva o «Disponible», y salir. El globo dice cuántas están libres.
 /// </summary>
 public static class TrayMenu
@@ -26,7 +26,6 @@ public static class TrayMenu
         {
             var list = state.Bucket(service).Accounts;
             if (list.Count == 0) continue;
-            entries.Add(new TrayEntry(TrayEntryKind.Header, service.Label()));
             foreach (var a in list)
             {
                 total++;

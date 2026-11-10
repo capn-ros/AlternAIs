@@ -144,10 +144,9 @@ public class WebPermissionTests
     public void Microfono_solo_para_el_propio_servicio_por_https()
     {
         Assert.Equal(PermissionDecision.Allow, WebPermissionPolicy.Decide(WebPermission.Microphone, "https://claude.ai/new", AiService.Claude));
-        Assert.Equal(PermissionDecision.Allow, WebPermissionPolicy.Decide(WebPermission.Microphone, "https://x.replit.com/", AiService.Replit));
         Assert.Equal(PermissionDecision.Deny, WebPermissionPolicy.Decide(WebPermission.Microphone, "http://claude.ai/", AiService.Claude));
         Assert.Equal(PermissionDecision.Deny, WebPermissionPolicy.Decide(WebPermission.Microphone, "https://claude.ai.evil.com/", AiService.Claude));
-        Assert.Equal(PermissionDecision.Deny, WebPermissionPolicy.Decide(WebPermission.Microphone, "https://replit.com/", AiService.Claude));
+        Assert.Equal(PermissionDecision.Deny, WebPermissionPolicy.Decide(WebPermission.Microphone, "https://otro.com/", AiService.Claude));
         Assert.Equal(PermissionDecision.Deny, WebPermissionPolicy.Decide(WebPermission.Microphone, null, AiService.Claude));
     }
 

@@ -13,15 +13,14 @@ enum class Service(
     val label: String,
     val startUrl: String,
     val hosts: List<String>,
-    /** Tema del servicio: Claude va oscuro y Replit claro (barra, cajón y página web). */
+    /** Tema del servicio: Claude va oscuro por defecto (barra, cajón y página web). */
     val dark: Boolean,
-    /** Fondo de la barra y del cajón (en Replit es el crema de su web). */
+    /** Fondo de la barra y del cajón . */
     val surface: Int,
     /** Color del texto y de los íconos neutros sobre ese fondo. */
     val onSurface: Int
 ) {
-    CLAUDE("claude", "Claude", "https://claude.ai/", listOf("claude.ai"), true, 0xFF1F1B18.toInt(), 0xFFF5EFE6.toInt()),
-    REPLIT("replit", "Replit", "https://replit.com/", listOf("replit.com"), false, 0xFFFBF8F4.toInt(), 0xFF1F1B18.toInt());
+    CLAUDE("claude", "Claude", "https://claude.ai/", listOf("claude.ai"), true, 0xFF1F1B18.toInt(), 0xFFF5EFE6.toInt());
 
     companion object {
         fun fromKey(k: String?): Service = values().firstOrNull { it.key == k } ?: CLAUDE
@@ -59,7 +58,7 @@ class AccountStore(context: Context) {
             prefs.edit().putString("service", value.key).apply()
         }
 
-    /** Tema (oscuro/claro) del servicio en uso. Cada servicio recuerda el suyo; por defecto Claude oscuro y Replit claro. */
+    /** Tema (oscuro/claro) del servicio en uso. Cada servicio recuerda el suyo; por defecto Claude oscuro. */
     var dark: Boolean
         get() = prefs.getBoolean("dark_${service.key}", service.dark)
         set(value) {
@@ -69,7 +68,7 @@ class AccountStore(context: Context) {
     /** Fondo de la barra y del cajón según el tema del servicio en uso. */
     val surface: Int
         get() = when {
-            // Colores medidos de las webs: Claude claro #FFFFFF / oscuro #191919; Replit claro crema #FBF8F4 / oscuro #1E1E1F.
+            // Colores medidos de las webs: Claude claro #FFFFFF / oscuro #191919.
             service == Service.CLAUDE -> if (dark) 0xFF191919.toInt() else 0xFFFFFFFF.toInt()
             else -> if (dark) 0xFF1E1E1F.toInt() else 0xFFFBF8F4.toInt()
         }
@@ -100,7 +99,7 @@ class AccountStore(context: Context) {
         LimitAlarms.reschedule(appContext)
     }
 
-    /** Mensajes guardados para pegar en el chat (compartidos por Claude y Replit). */
+    /** Mensajes guardados para pegar en el chat . */
     var snippets: List<String>
         get() {
             val raw = prefs.getString("snippets", null) ?: return DEFAULT_SNIPPETS

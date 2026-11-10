@@ -9,7 +9,7 @@ class AiServiceTest {
     @Test fun `fromKey desconocido cae en Claude`() {
         assertEquals(AiService.CLAUDE, AiService.fromKey(null))
         assertEquals(AiService.CLAUDE, AiService.fromKey("otro"))
-        assertEquals(AiService.REPLIT, AiService.fromKey("replit"))
+        assertEquals(AiService.CLAUDE, AiService.fromKey("replit"))
     }
     @Test fun `ownsHost acepta el dominio y sus subdominios pero no parecidos`() {
         assertTrue(AiService.CLAUDE.ownsHost("claude.ai"))

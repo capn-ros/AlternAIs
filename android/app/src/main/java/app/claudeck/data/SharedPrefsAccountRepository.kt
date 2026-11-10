@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
  * Implementación sobre SharedPreferences("claudeck") con las MISMAS claves de siempre:
- * Claude usa `accounts`/`selected`; los demás servicios llevan sufijo (`accounts_replit`, ...).
+ * Claude usa `accounts`/`selected`; las claves viejas de otros servicios (`accounts_replit`, ...) ya no se leen.
  * [onSaved] reemplaza al viejo acoplamiento con las alarmas (se reprograman al guardar).
  */
 class SharedPrefsAccountRepository(

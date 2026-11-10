@@ -43,12 +43,6 @@ public sealed class AccountsService
     private void Update(Func<ServiceBucket, ServiceBucket> change) =>
         Commit(State.WithBucket(State.Service, change(State.Current)));
 
-    /// <summary>Cambia de servicio (Claude ↔ Replit).</summary>
-    public void SwitchService(AiService service)
-    {
-        if (service != State.Service) Commit(State with { Service = service });
-    }
-
     public void Select(string id)
     {
         if (Accounts.All(a => a.Id != id) || id == SelectedId) return;
@@ -167,7 +161,7 @@ public sealed class AccountsService
     public void SetTheme(AiService service, string theme)
     {
         var t = theme == "light" ? "light" : "dark";
-        Commit(service == AiService.Replit ? State with { ReplitTheme = t } : State with { ClaudeTheme = t });
+        Commit(State with { ClaudeTheme = t });
     }
 
     public void MarkTutorialShown() => Commit(State with { TutorialShown = true });

@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 
-/** Mismas claves de siempre: `service`, `dark_<servicio>` (Claude oscuro y Replit claro por defecto) y `bubble_enabled`. */
+/** Mismas claves de siempre: `service`, `dark_<servicio>` (Claude oscuro por defecto) y `bubble_enabled`. */
 class SharedPrefsSettingsRepository(private val prefs: SharedPreferences) : SettingsRepository {
 
     override fun current(): AppSettings {

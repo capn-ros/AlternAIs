@@ -16,12 +16,11 @@ public class TrayMenuTests
     }
 
     [Fact]
-    public void Lista_las_cuentas_de_los_dos_servicios_con_su_estado()
+    public void Lista_las_cuentas_con_su_estado()
     {
         var state = AppState.Initial with
         {
-            Claude = new ServiceBucket([T.Acc("aaaaaaaaaaaa", "Trabajo"), T.Acc("bbbbbbbbbbbb", "Estudio", T.Now + 2 * T.Hour)], "aaaaaaaaaaaa"),
-            Replit = new ServiceBucket([T.Acc("cccccccccccc", "Repl")], "cccccccccccc")
+            Claude = new ServiceBucket([T.Acc("aaaaaaaaaaaa", "Trabajo"), T.Acc("bbbbbbbbbbbb", "Estudio", T.Now + 2 * T.Hour), T.Acc("cccccccccccc", "Repl")], "aaaaaaaaaaaa")
         };
         var m = TrayMenu.Build(state, T.Now);
         Assert.Equal("AlternAIs — 2 de 3 disponibles", m.Tooltip);
@@ -29,9 +28,8 @@ public class TrayMenuTests
         Assert.Equal(3, accounts.Count);
         Assert.Equal("✅  Trabajo — Disponible", accounts[0].Text);
         Assert.Equal("⏳  Estudio — 2 h 0 min", accounts[1].Text);
-        Assert.Equal(AiService.Replit, accounts[2].Service);
+        Assert.Equal(AiService.Claude, accounts[2].Service);
         Assert.Equal("cccccccccccc", accounts[2].AccountId);
-        Assert.Equal(new[] { "Claude", "Replit" }, m.Entries.Where(e => e.Kind == TrayEntryKind.Header).Select(e => e.Text));
         Assert.Equal(TrayEntryKind.Quit, m.Entries[^1].Kind);
     }
 }

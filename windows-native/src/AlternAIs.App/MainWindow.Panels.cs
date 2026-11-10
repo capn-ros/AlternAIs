@@ -78,10 +78,10 @@ public sealed partial class MainWindow
             Content = Logo.Create(40), Padding = new Thickness(0), BorderThickness = new Thickness(0),
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), CornerRadius = new CornerRadius(10)
         };
-        ToolTipService.SetToolTip(logo, "Cambiar a tema " + ((service == AiService.Replit ? s.ReplitTheme : s.ClaudeTheme) == "dark" ? "claro" : "oscuro"));
+        ToolTipService.SetToolTip(logo, "Cambiar a tema " + (s.ClaudeTheme == "dark" ? "claro" : "oscuro"));
         logo.Click += (_, _) =>
         {
-            var current = service == AiService.Replit ? _svc.State.ReplitTheme : _svc.State.ClaudeTheme;
+            var current = _svc.State.ClaudeTheme;
             _svc.SetTheme(service, current == "dark" ? "light" : "dark");
             RenderPanel();
         };
@@ -96,7 +96,7 @@ public sealed partial class MainWindow
         var dark = new ToggleSwitch
         {
             Header = "Tema de " + service.Label(), OnContent = "Oscuro", OffContent = "Claro",
-            IsOn = (service == AiService.Replit ? s.ReplitTheme : s.ClaudeTheme) == "dark"
+            IsOn = s.ClaudeTheme == "dark"
         };
         dark.Toggled += (_, _) => _svc.SetTheme(service, dark.IsOn ? "dark" : "light");
         stack.Children.Add(dark);

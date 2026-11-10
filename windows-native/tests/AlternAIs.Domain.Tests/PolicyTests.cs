@@ -88,9 +88,8 @@ public class UrlRestorePolicyTests
     [Fact] public void Rechaza_texto_que_no_es_url() => Assert.Null(Claude("no es una url ::"));
 
     [Fact]
-    public void Una_url_de_claude_no_sirve_para_replit()
+    public void Una_url_de_otro_sitio_no_se_restaura()
     {
-        Assert.Null(UrlRestorePolicy.Restorable(AiService.Replit, "https://claude.ai/chat"));
-        Assert.Equal("https://replit.com/@u/p", UrlRestorePolicy.Restorable(AiService.Replit, "https://replit.com/@u/p"));
+        Assert.Null(UrlRestorePolicy.Restorable(AiService.Claude, "https://replit.com/@u/p"));
     }
 }

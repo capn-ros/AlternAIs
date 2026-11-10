@@ -1,6 +1,6 @@
 # AlternAIs
 
-Tu mazo de cuentas de claude.ai y replit.com: varias abiertas a la vez, cada una con su **sesión totalmente aislada**, y cambio entre ellas con un toque. Para Android y Windows, compiladas en GitHub.
+Tu mazo de cuentas de claude.ai: varias abiertas a la vez, cada una con su **sesión totalmente aislada**, y cambio entre ellas con un toque. Para Android y Windows, compiladas en GitHub.
 
 No es una app oficial de Anthropic: es un contenedor que abre `claude.ai` y guarda las cookies de cada cuenta por separado. No usa ninguna API ni toca tus datos.
 
@@ -21,10 +21,10 @@ El APK usa siempre la misma firma (incluida en `android/app/debug.keystore`), as
 
 ## Qué hace
 
-- **Dos apps en una: Claude y Replit.** En el cajón de **Ajustes**, arriba, están los nombres **Claude** y **Replit** con el logo de la app en el medio. Tocá uno para pasar a esa mitad: funciona igual, pero cada una tiene **sus propias cuentas** (y su cuenta activa). **Claude se ve oscuro y Replit claro**, con la barra del color de fondo de Replit; en las dos, el borde y los íconos toman el color de la cuenta activa. Tocá **Claude** para volver.
+- **Solo Claude.** Se quitó Replit: la app es un contenedor de cuentas de claude.ai. Si tenías cuentas de Replit guardadas, quedan en el disco pero se ignoran.
 - **Una cuenta = una sesión aislada.** Android usa perfiles de WebView; Windows usa una partición persistente por cuenta. Las sesiones quedan guardadas al cerrar la app y, al volver a abrirla, cada cuenta retoma su última pantalla de Claude.
 - **Nombre, propósito y color** por cuenta (ej. "Trabajo · Código y revisiones").
-- **Descanso por límite de uso:** cuando una cuenta llega a su límite, la marcás (en 5 h, 24 h, 7 días o a una hora exacta; en Replit, además, el día de renovación mensual, y las opciones siguen sus cuotas: Modo gratis cada 5 h con tope semanal, créditos diarios y créditos mensuales). Se ve en descanso con la cuenta regresiva y la app te avisa cuando pasa.
+- **Descanso por límite de uso:** cuando una cuenta llega a su límite, la marcás (en 5 h, 24 h, 7 días o a una hora exacta). Se ve en descanso con la cuenta regresiva y la app te avisa cuando pasa.
 - **Exportar e importar cuentas** (Ajustes): guardás un archivo con tus cuentas (nombre, propósito, color y límites) y lo importás en otro dispositivo, Windows ↔ Android. **No copia las sesiones**: en el dispositivo nuevo hay que iniciar sesión en cada cuenta.
 - **Cerrar sesión y borrar datos** o **eliminar** una cuenta, solo en el dispositivo.
 - **Tutorial de bienvenida** en el primer inicio, con opción para saltearlo. Recomienda iniciar sesión en Claude con el correo electrónico; «Continuar con Google» puede fallar en navegadores integrados.
@@ -50,13 +50,13 @@ Lee el mismo `accounts.json`, así que conserva tus cuentas, pero **hay que volv
 Qué tiene (igual que la versión de siempre):
 - Animación del logo al abrir y logo en bucle mientras carga una cuenta.
 - Barra de título propia con la **barra de tiempo** de la cuenta activa («Trabajo · faltan 2 h 10 min»).
-- Barra de cuentas a la izquierda, derecha o abajo; Claude y Replit con sus cuentas y su tema (tocá el logo de Ajustes para alternar oscuro/claro).
+- Barra de cuentas a la izquierda, derecha o abajo; Tema (tocá el logo de Ajustes para alternar oscuro/claro).
 - **Explorador de archivos** (Ctrl+E): lugares rápidos, abrir/ejecutar, copiar, mover, renombrar, borrar a la Papelera, carpeta nueva y extraer .zip. Un .zip o .rar se abre por dentro como una carpeta (los .zip se pueden modificar; los .rar solo se ven y se extraen). Clic derecho = opciones; Supr, F2, Enter, Retroceso, Ctrl+C/X/V, Ctrl+Mayús+N.
 - Mensajes guardados (Ctrl+M, con «Texto propio…»), navegador interno (Ctrl+B) y ajustes (Ctrl+,).
 - **Bandeja del sistema**: en Ajustes → «Al cerrar la ventana» → «Seguir en la bandeja». Clic en el ícono abre; clic derecho muestra las cuentas con su cuenta regresiva y «Salir».
 - Aviso de fin de descanso con caja para **responder desde el aviso** y los dos primeros mensajes guardados como botones; respuesta automática al marcar el límite (mensaje guardado, texto propio o ninguna).
 - Atajos que funcionan aunque estés escribiendo en la página: Ctrl+Tab / Ctrl+Mayús+Tab, Ctrl+1…9, Ctrl+N, Ctrl+B, Ctrl+M, Ctrl+E, Ctrl+,.
-- Micrófono para el dictado por voz (solo para claude.ai / replit.com); la cámara no.
+- Micrófono para el dictado por voz (solo para claude.ai); la cámara no.
 - Tutorial la primera vez (se puede volver a ver desde Ajustes) y una sola AlternAIs abierta a la vez.
 
 ## Limitaciones conocidas

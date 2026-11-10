@@ -168,8 +168,7 @@ class MainActivity : AppCompatActivity() {
         private const val BRIDGE = "claudeckDl"
         private val BRIDGE_ORIGINS = setOf(
             "https://claude.ai", "https://*.claude.ai",
-            "https://claude.com", "https://*.claude.com",
-            "https://replit.com", "https://*.replit.com"
+            "https://claude.com", "https://*.claude.com"
         )
 
         /** Una sola paleta, la del dominio (`AccountPalette`): la usan el formulario, el botón + y la importación. */
@@ -1103,7 +1102,7 @@ class MainActivity : AppCompatActivity() {
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
     private fun applySystemBars() {
-        // Claude va oscuro y Replit claro, sin importar el tema del sistema.
+        // Claude va oscuro por defecto, sin importar el tema del sistema.
         val light = !store.dark
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = light
@@ -1111,7 +1110,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Pinta la barra, el cajón y los fondos con el tema del servicio activo (Claude oscuro, Replit claro). */
+    /** Pinta la barra, el cajón y los fondos con el tema del servicio activo (Claude oscuro). */
     private fun applyServiceTheme() {
         window.statusBarColor = store.surface
         window.navigationBarColor = store.surface
@@ -1321,7 +1320,7 @@ class MainActivity : AppCompatActivity() {
     /** Color de la cuenta activa: lo usan los íconos y detalles de la barra y del cajón. */
     private fun accent(): Int = chrome(accounts.firstOrNull { it.id == currentId })
 
-    /** Color de la interfaz (borde, íconos, punto): el de la cuenta activa, en Claude y en Replit. */
+    /** Color de la interfaz (borde, íconos, punto): el de la cuenta activa. */
     private fun chrome(acc: Account?): Int = acc?.color ?: brand()
 
     private fun retintIcons() {
@@ -1357,9 +1356,8 @@ class MainActivity : AppCompatActivity() {
         drawerBg = newTrayBg()
         styleTray(d, drawerBg) { dp(22).toFloat() }
 
-        // El contenido del cajón (pestañas Claude/Replit, logo, interruptor de burbuja y filas) es Compose.
+        // El contenido del cajón (logo, interruptor de burbuja y filas) es Compose.
         val actions = object : SettingsActions {
-            override fun selectService(service: AiService) = switchService(Service.fromKey(service.key))
             override fun toggleTheme() = this@MainActivity.toggleTheme()
             override fun toggleBubble(turnOn: Boolean) {
                 setDrawerOpen(false)
@@ -1428,42 +1426,6 @@ class MainActivity : AppCompatActivity() {
         if (keep != null) select(keep)
         updateErrorView()
         BubbleService.refresh()
-        scheduleAutoHide()
-    }
-
-    /**
-     * Cambia de mitad de la app (Claude ↔ Replit). Cada una tiene sus cuentas, su cuenta activa y sus
-     * perfiles de WebView; los WebViews de la otra mitad quedan ocultos y conservan su sesión.
-     */
-    private fun switchService(target: Service) {
-        setDrawerOpen(false)
-        if (target == store.service) return
-        webViews.values.forEach { rememberPage(it, it.url) }
-        store.service = target
-        applyServiceTheme()
-        accounts.clear()
-        accounts.addAll(store.load())
-        currentId = null
-        previousId = null
-        rebuildChips(true)
-        val start = store.selectedId?.takeIf { id -> accounts.any { it.id == id } }
-            ?: accounts.firstOrNull()?.id
-        if (start != null) {
-            select(start)
-        } else {
-            webViews.values.forEach {
-                it.animate().cancel()
-                it.visibility = View.GONE
-            }
-            progress.visibility = View.INVISIBLE
-            setBorderColor(chrome(null))
-            updateInfo()
-            updateErrorView()
-        }
-        updateEmptyState()
-        updateShortcuts()
-        BubbleService.refresh()
-        retintIcons()
         scheduleAutoHide()
     }
 
@@ -1882,7 +1844,7 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebView(acc: Account): WebView {
-        // Claude oscuro, Replit claro: el WebView toma el tema de su contexto (prefers-color-scheme).
+        // Claude oscuro: el WebView toma el tema de su contexto (prefers-color-scheme).
         val dark = store.dark
         val wv = WebView(ContextThemeWrapper(this, if (dark) R.style.Theme_Claudeck_WebDark else R.style.Theme_Claudeck_WebLight))
         wv.tag = acc.id
@@ -2359,7 +2321,7 @@ class MainActivity : AppCompatActivity() {
         MaterialAlertDialogBuilder(this)
             .setTitle("Acerca de AlternAIs")
             .setMessage(
-                "AlternAIs organiza sesiones independientes de claude.ai y replit.com (cada uno con sus propias cuentas) para que puedas cambiar de cuenta sin mezclar sus datos.\n\n" +
+                "AlternAIs organiza sesiones independientes de claude.ai (cada cuenta con su propio inicio de sesión) para que puedas cambiar de cuenta sin mezclar sus datos.\n\n" +
                     "Pensada y diseñada por Andrés Londero.\n\n" +
                     "No es una aplicación oficial de Anthropic. Si el acceso con Google falla en el navegador integrado, iniciá sesión con tu correo electrónico."
             )
@@ -2414,7 +2376,7 @@ class MainActivity : AppCompatActivity() {
             }
             3 -> {
                 title = "Ajustes"
-                body = "Abrí el cajón de ajustes para activar la burbuja, recargar la cuenta o ver Descargas. Arriba podés pasar de Claude a Replit y volver: cada uno tiene sus propias cuentas. Lo abrí para mostrarte dónde está."
+                body = "Abrí el cajón de ajustes para activar la burbuja, recargar la cuenta o ver Descargas. Lo abrí para mostrarte dónde está."
                 setDockCollapsed(false, false)
                 setDrawerOpen(true)
                 target = drawer
@@ -2689,8 +2651,7 @@ class MainActivity : AppCompatActivity() {
     // ---------------------------------------------------------------- Exportar / importar cuentas
 
     /**
-     * El archivo lleva solo nombre, propósito, color y marcas de límite de cada cuenta (Claude y
-     * Replit). NO lleva sesiones ni contraseñas: al importar hay que iniciar sesión en cada cuenta.
+     * El archivo lleva solo nombre, propósito, color y marcas de límite de cada cuenta (Claude). NO lleva sesiones ni contraseñas: al importar hay que iniciar sesión en cada cuenta.
      */
     private fun writeExport(uri: Uri) {
         try {
@@ -2808,34 +2769,10 @@ class MainActivity : AppCompatActivity() {
         override fun apply(accountId: String, untilMs: Long) {
             accounts.firstOrNull { it.id == accountId }?.let { setLimit(it, untilMs) }
         }
-        override fun pickRenewalDate(accountId: String) {
-            accounts.firstOrNull { it.id == accountId }?.let { this@MainActivity.pickRenewalDate(it) }
-        }
         override fun message(text: String) = snack(text)
         override fun surface(): Int = store.surface
         override fun onSurface(): Int = store.onSurface
         override fun accent(): Int = this@MainActivity.accent()
-    }
-
-    /** Replit: día en que se renuevan los créditos del mes (empieza el ciclo de facturación, 00:00). */
-    private fun pickRenewalDate(acc: Account) {
-        val picker = MaterialDatePicker.Builder.datePicker()
-            .setTitleText("Día de renovación mensual")
-            .setCalendarConstraints(
-                CalendarConstraints.Builder().setValidator(DateValidatorPointForward.now()).build()
-            )
-            .build()
-        picker.addOnPositiveButtonClickListener { utcMillis ->
-            // El selector devuelve la fecha en UTC: se toma ese día y se pasa a las 00:00 locales.
-            val utc = Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).apply { timeInMillis = utcMillis }
-            val target = Calendar.getInstance().apply {
-                set(utc.get(Calendar.YEAR), utc.get(Calendar.MONTH), utc.get(Calendar.DAY_OF_MONTH), 0, 0, 0)
-                set(Calendar.MILLISECOND, 0)
-            }
-            if (target.timeInMillis <= System.currentTimeMillis()) target.add(Calendar.DAY_OF_YEAR, 1)
-            setLimit(acc, target.timeInMillis)
-        }
-        picker.show(supportFragmentManager, "limit_date")
     }
 
     private fun setLimit(acc: Account, until: Long) {

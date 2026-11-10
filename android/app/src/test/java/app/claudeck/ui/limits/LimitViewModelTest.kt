@@ -26,8 +26,8 @@ class LimitViewModelTest {
 
     @Test fun `abrir las opciones guarda la cuenta y el servicio`() {
         val vm = LimitViewModel(clock)
-        vm.openOptions("abc", AiService.REPLIT)
-        assertEquals(LimitDialog.Options("abc", AiService.REPLIT), vm.dialog.value)
+        vm.openOptions("abc", AiService.CLAUDE)
+        assertEquals(LimitDialog.Options("abc", AiService.CLAUDE), vm.dialog.value)
     }
 
     @Test fun `pasar a la hora exacta conserva la cuenta y cerrar vuelve a ninguno`() {
@@ -44,10 +44,9 @@ class LimitViewModelTest {
         assertEquals(start + 5 * 3_600_000L, vm.untilFor(LimitOption.After("x", 5)))
     }
 
-    @Test fun `las opciones dependen del servicio`() {
+    @Test fun `las opciones de Claude son cuatro`() {
         val vm = LimitViewModel(clock)
         assertEquals(4, vm.options(AiService.CLAUDE).size)
-        assertEquals(5, vm.options(AiService.REPLIT).size)
     }
 
     @Test fun `la hora exacta usa el reloj inyectado`() {

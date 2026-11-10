@@ -62,9 +62,9 @@ class BuildAccountMenuTest {
         val out = BuildAccountMenu.confirmation(AccountMenuAction.SIGN_OUT, "Casa", "Claude")!!
         assertEquals("Cerrar sesión", out.title)
         assertTrue(out.message.contains("«Casa»"))
-        val del = BuildAccountMenu.confirmation(AccountMenuAction.DELETE, "Casa", "Replit")!!
+        val del = BuildAccountMenu.confirmation(AccountMenuAction.DELETE, "Casa", "Claude")!!
         assertEquals("Eliminar cuenta", del.title)
-        assertTrue(del.message.contains("Tu cuenta de Replit no se toca."))
+        assertTrue(del.message.contains("Tu cuenta de Claude no se toca."))
     }
 
     @Test fun `las demas acciones no piden confirmacion`() {

@@ -134,16 +134,15 @@ public class AccountsServiceTests
     }
 
     [Fact]
-    public void Vencer_limites_limpia_ambos_servicios_y_devuelve_las_cuentas()
+    public void Vencer_limites_limpia_solo_las_vencidas_y_devuelve_las_cuentas()
     {
         var state = AppState.Initial
-            .WithBucket(AiService.Claude, new ServiceBucket([T.Acc("aaaaaaaaaaaa", until: T.Now - 1)], null))
-            .WithBucket(AiService.Replit, new ServiceBucket([T.Acc("bbbbbbbbbbbb", until: T.Now + T.Hour)], null));
+            .WithBucket(AiService.Claude, new ServiceBucket([T.Acc("aaaaaaaaaaaa", until: T.Now - 1), T.Acc("bbbbbbbbbbbb", until: T.Now + T.Hour)], null));
         var (svc, store) = Make(state);
         var expired = svc.ExpireLimits();
         Assert.Equal(new[] { "aaaaaaaaaaaa" }, expired.Select(a => a.Id).ToArray());
         Assert.Equal(0, svc.State.Claude.Accounts[0].LimitUntil);
-        Assert.True(svc.State.Replit.Accounts[0].LimitUntil > 0);
+        Assert.True(svc.State.Claude.Accounts[1].LimitUntil > 0);
         Assert.Equal(1, store.Saves);
     }
 
@@ -162,27 +161,6 @@ public class AccountsServiceTests
             [T.Acc("aaaaaaaaaaaa"), T.Acc("bbbbbbbbbbbb", until: T.Now + T.Hour), T.Acc("cccccccccccc")], "aaaaaaaaaaaa"));
         var (svc, _) = Make(state);
         Assert.Equal("cccccccccccc", svc.FirstAvailableExceptCurrent()!.Id);
-    }
-
-    [Fact]
-    public void Cambiar_de_servicio_usa_las_cuentas_de_ese_servicio()
-    {
-        var state = AppState.Initial.WithBucket(AiService.Replit, new ServiceBucket([T.Acc("rrrrrrrrrrrr")], null));
-        var (svc, _) = Make(state);
-        Assert.Empty(svc.Accounts);
-        svc.SwitchService(AiService.Replit);
-        Assert.Equal("rrrrrrrrrrrr", svc.SelectedId);
-        Assert.Single(svc.Accounts);
-    }
-
-    [Fact]
-    public void Agregar_en_Replit_no_toca_Claude()
-    {
-        var (svc, _) = Make(WithClaude(T.Acc("aaaaaaaaaaaa")));
-        svc.SwitchService(AiService.Replit);
-        svc.Add(Form("R"));
-        Assert.Single(svc.State.Claude.Accounts);
-        Assert.Single(svc.State.Replit.Accounts);
     }
 
     [Fact]
@@ -212,14 +190,11 @@ public class AccountsServiceTests
         var (svc, _) = Make(WithClaude(T.Acc("aaaaaaaaaaaa", name: "Trabajo")));
         var incoming = new Dictionary<AiService, IReadOnlyList<ImportedAccount>>
         {
-            [AiService.Claude] = [new ImportedAccount("trabajo"), new ImportedAccount("Estudio", ColorHex: "#112233")],
-            [AiService.Replit] = [new ImportedAccount("Rep", Selected: true)]
+            [AiService.Claude] = [new ImportedAccount("trabajo"), new ImportedAccount("Estudio", ColorHex: "#112233")]
         };
         var r = svc.Import(incoming);
-        Assert.Equal(new ImportSummary(2, 1), r);
+        Assert.Equal(new ImportSummary(1, 1), r);
         Assert.Equal(2, svc.State.Claude.Accounts.Count);
-        Assert.Equal("Rep", svc.State.Replit.Accounts.Single().Name);
-        Assert.Equal(svc.State.Replit.Accounts[0].Id, svc.State.Replit.SelectedId);
         Assert.Equal("aaaaaaaaaaaa", svc.State.Claude.SelectedId ?? "aaaaaaaaaaaa");
     }
 
@@ -236,11 +211,11 @@ public class AccountsServiceTests
     {
         var (svc, _) = Make();
         svc.SetTheme(AiService.Claude, "light");
-        svc.SetTheme(AiService.Replit, "raro");
+        svc.SetTheme(AiService.Claude, "raro");
         svc.MarkTutorialShown();
         svc.SetSettings(new AppSettings("bottom", true, true));
         svc.SetBrowser(new BrowserSettings("https://a.com", "ask", @"C:\x"));
-        Assert.Equal(("light", "dark", true), (svc.State.ClaudeTheme, svc.State.ReplitTheme, svc.State.TutorialShown));
+        Assert.Equal(("dark", true), (svc.State.ClaudeTheme, svc.State.TutorialShown));
         Assert.Equal("bottom", svc.State.Settings.RailPos);
         Assert.Equal("ask", svc.State.Browser.DlMode);
     }
@@ -254,16 +229,14 @@ public class AccountsServiceTests
     }
 
     [Fact]
-    public void Una_cuenta_del_otro_servicio_se_actualiza_sin_cambiar_de_servicio()
+    public void ServiceOf_encuentra_la_cuenta_o_devuelve_null()
     {
-        var state = AppState.Initial.WithBucket(AiService.Replit, new ServiceBucket([T.Acc("rrrrrrrrrrrr")], null));
-        var (svc, _) = Make(state);
-        Assert.Equal(AiService.Claude, svc.State.Service);
-        Assert.Equal(AiService.Replit, svc.ServiceOf("rrrrrrrrrrrr"));
-        svc.RememberUrl("rrrrrrrrrrrr", "https://replit.com/@u/p");
-        Assert.Equal("https://replit.com/@u/p", svc.State.Replit.Accounts[0].LastUrl);
-        svc.SetAutoReply("rrrrrrrrrrrr", "hola");
-        Assert.Equal("hola", svc.State.Replit.Accounts[0].AutoReply);
+        var (svc, _) = Make(WithClaude(T.Acc("aaaaaaaaaaaa")));
+        Assert.Equal(AiService.Claude, svc.ServiceOf("aaaaaaaaaaaa"));
+        svc.RememberUrl("aaaaaaaaaaaa", "https://claude.ai/chat/9");
+        Assert.Equal("https://claude.ai/chat/9", svc.State.Claude.Accounts[0].LastUrl);
+        svc.SetAutoReply("aaaaaaaaaaaa", "hola");
+        Assert.Equal("hola", svc.State.Claude.Accounts[0].AutoReply);
         Assert.Null(svc.ServiceOf("nada"));
     }
 }

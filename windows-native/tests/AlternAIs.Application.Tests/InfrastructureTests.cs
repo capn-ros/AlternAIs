@@ -32,7 +32,7 @@ public class StateJsonTests
     public void Lee_un_accounts_json_de_Electron()
     {
         var s = StateJson.Parse(Electron);
-        Assert.Equal(AiService.Replit, s.Service);
+        Assert.Equal(AiService.Claude, s.Service);
         Assert.Equal(2, s.Claude.Accounts.Count);
         var a = s.Claude.Accounts[0];
         Assert.Equal(("a1b2c3d4e5f6", "Trabajo", "Código", "yo@mail.com", "Seguí"), (a.Id, a.Name, a.Purpose, a.Email, a.AutoReply));
@@ -71,14 +71,13 @@ public class StateJsonTests
     {
         var s = StateJson.Parse(Electron);
         Assert.Equal("0123456789ab", s.Claude.SelectedId);
-        Assert.Equal("ffffffffffff", s.Replit.SelectedId);
     }
 
     [Fact]
     public void Lee_temas_ajustes_navegador_y_mensajes()
     {
         var s = StateJson.Parse(Electron);
-        Assert.Equal(("light", "dark", true), (s.ClaudeTheme, s.ReplitTheme, s.TutorialShown));
+        Assert.Equal(("light", true), (s.ClaudeTheme, s.TutorialShown));
         Assert.Equal(new AppSettings("bottom", true, false), s.Settings);
         Assert.Equal(new BrowserSettings("https://github.com/", "folder", @"C:\Descargas"), s.Browser);
         Assert.Equal(new[] { "uno", "dos" }, s.Snippets.ToArray());
@@ -100,9 +99,9 @@ public class StateJsonTests
     [Fact]
     public void Valores_invalidos_vuelven_a_los_de_fabrica()
     {
-        var s = StateJson.Parse("""{ "service": "otra", "themes": { "claude": "x", "replit": "y" }, "settings": { "railPos": "arriba" }, "browser": { "lastUrl": "ftp://x", "dlMode": "z", "dlDir": "relativa" } }""");
+        var s = StateJson.Parse("""{ "service": "otra", "themes": { "claude": "x" }, "settings": { "railPos": "arriba" }, "browser": { "lastUrl": "ftp://x", "dlMode": "z", "dlDir": "relativa" } }""");
         Assert.Equal(AiService.Claude, s.Service);
-        Assert.Equal(("dark", "light"), (s.ClaudeTheme, s.ReplitTheme));
+        Assert.Equal("dark", s.ClaudeTheme);
         Assert.Equal("left", s.Settings.RailPos);
         Assert.Equal(new BrowserSettings("", "default", ""), s.Browser);
     }
@@ -113,7 +112,6 @@ public class StateJsonTests
         var original = StateJson.Parse(Electron);
         var again = StateJson.Parse(StateJson.Serialize(original));
         Assert.Equal(original.Claude.Accounts, again.Claude.Accounts);
-        Assert.Equal(original.Replit.Accounts, again.Replit.Accounts);
         Assert.Equal(original.Claude.SelectedId, again.Claude.SelectedId);
         Assert.Equal(original.Settings, again.Settings);
         Assert.Equal(original.Browser, again.Browser);
@@ -124,10 +122,10 @@ public class StateJsonTests
     public void Lo_escrito_usa_las_mismas_claves_que_Electron()
     {
         var json = StateJson.Serialize(StateJson.Parse(Electron));
-        foreach (var key in new[] { "\"accounts\"", "\"selectedId\"", "\"replit\"", "\"service\"", "\"themes\"", "\"tutorialShown\"", "\"snippets\"", "\"settings\"", "\"browser\"", "\"limitUntil\"", "\"autoReply\"", "\"railPos\"", "\"dlMode\"" })
+        foreach (var key in new[] { "\"accounts\"", "\"selectedId\"", "\"service\"", "\"themes\"", "\"tutorialShown\"", "\"snippets\"", "\"settings\"", "\"browser\"", "\"limitUntil\"", "\"autoReply\"", "\"railPos\"", "\"dlMode\"" })
             Assert.Contains(key, json);
         Assert.Contains("\"color\": \"#4FB0C6\"", json);
-        Assert.Contains("\"service\": \"replit\"", json);
+        Assert.DoesNotContain("replit", json);
     }
 }
 
@@ -156,7 +154,6 @@ public class ExportJsonTests
         var a = parsed[AiService.Claude].Single();
         Assert.Equal(("Trabajo", "Código", "#4FB0C6", "yo@mail.com", true), (a.Name, a.Purpose, a.ColorHex, a.Email, a.Selected));
         Assert.Equal((T.Now + T.Hour, T.Now), (a.LimitUntil, a.LimitStart));
-        Assert.Empty(parsed[AiService.Replit]);
     }
 
     [Theory]

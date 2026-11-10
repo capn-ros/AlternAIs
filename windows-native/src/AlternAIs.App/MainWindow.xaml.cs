@@ -52,7 +52,6 @@ public sealed partial class MainWindow : Window
     private readonly StackPanel _railBottom = new();
     private readonly Border _panelHost = new();
     private readonly TextBlock _empty = new();
-    private readonly Dictionary<AiService, Button> _serviceButtons = new();
     private Button? _addButton;
 
     private SidePanel _panel = SidePanel.None;
@@ -76,7 +75,7 @@ public sealed partial class MainWindow : Window
         _rendered = _svc.State;
         _views = new AccountWebViews(_webHost);
         _sender = new AutoSender(_views);
-        AccountWebViews.PurgeOrphans(_svc.State.Claude.Accounts.Concat(_svc.State.Replit.Accounts).Select(a => a.ProfileName));
+        AccountWebViews.PurgeOrphans(_svc.State.Claude.Accounts.Select(a => a.ProfileName));
         _views.UrlChanged += (id, url) => _svc.RememberUrl(id, url);
         _views.ShortcutPressed += combo => RunShortcut(Shortcuts.FromCombo(combo));
         _views.LoadingChanged += UpdateLoading;
@@ -108,7 +107,7 @@ public sealed partial class MainWindow : Window
     // ---------------------------------------------------------------- Estado
 
     private Palette CurrentPalette =>
-        Palette.For(_svc.State.Service == AiService.Replit ? _svc.State.ReplitTheme : _svc.State.ClaudeTheme);
+        Palette.For(_svc.State.ClaudeTheme);
 
     /// <summary>Color de la cuenta activa (el «chrome» de la ventana lo usa, como en Android); sin cuentas, el coral.</summary>
     private Windows.UI.Color Accent => _svc.Selected is { } a ? Palette.FromArgb(a.Color) : Brand;
@@ -118,12 +117,12 @@ public sealed partial class MainWindow : Window
         var prev = _rendered;
         _rendered = s;
         var layoutChanged = prev.Settings.RailPos != s.Settings.RailPos;
-        var themeChanged = prev.ClaudeTheme != s.ClaudeTheme || prev.ReplitTheme != s.ReplitTheme || prev.Service != s.Service;
-        var accountsChanged = !ReferenceEquals(prev.Claude, s.Claude) || !ReferenceEquals(prev.Replit, s.Replit);
+        var themeChanged = prev.ClaudeTheme != s.ClaudeTheme;
+        var accountsChanged = !ReferenceEquals(prev.Claude, s.Claude);
         if (layoutChanged) BuildLayout();
         if (themeChanged || layoutChanged || accountsChanged) ApplyTheme();
         if (accountsChanged || themeChanged || layoutChanged) RefreshRail();
-        if (prev.Service != s.Service || prev.Current.SelectedId != s.Current.SelectedId || accountsChanged)
+        if (prev.Current.SelectedId != s.Current.SelectedId || accountsChanged)
             _ = ShowSelectedAsync();
         if (prev.Settings.CloseToTray != s.Settings.CloseToTray || accountsChanged) UpdateTray();
     }
@@ -288,18 +287,6 @@ public sealed partial class MainWindow : Window
         _railScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Hidden;
         _railScroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden;
 
-        foreach (var service in Enum.GetValues<AiService>())
-        {
-            var s = service;
-            var b = new Button
-            {
-                Content = s.Label(), FontSize = 11, Padding = new Thickness(4, 6, 4, 6), Margin = new Thickness(4, 2, 4, 2),
-                MinWidth = 60, HorizontalAlignment = HorizontalAlignment.Center, CornerRadius = new CornerRadius(14)
-            };
-            b.Click += (_, _) => _svc.SwitchService(s);
-            _serviceButtons[s] = b;
-            _railTop.Children.Add(b);
-        }
         _railTop.Margin = new Thickness(0, 6, 0, 6);
 
         _railBottom.Children.Add(RailButton("", "Navegador (Ctrl+B)", () => TogglePanel(SidePanel.Browser)));
@@ -490,12 +477,6 @@ public sealed partial class MainWindow : Window
         var vertical = _svc.State.Settings.RailPos != "bottom";
         var accent = Accent;
 
-        foreach (var (service, button) in _serviceButtons)
-        {
-            var on = service == _svc.State.Service;
-            button.Background = on ? Palette.Brush(accent) : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-            button.Foreground = on ? Palette.Brush(Palette.TextOnColor(accent)) : Palette.Brush(pal.OnSurface);
-        }
         foreach (var child in _railBottom.Children)
         {
             if (child is Button { Content: FontIcon icon }) icon.Foreground = Palette.Brush(accent);

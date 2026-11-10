@@ -32,10 +32,6 @@ public static partial class StateJson
         if (root is null) return AppState.Initial;
 
         var claude = Bucket(root["accounts"], root["selectedId"], AiService.Claude);
-        var replitNode = root["replit"] as JsonObject;
-        var replit = replitNode is null
-            ? ServiceBucket.Empty
-            : Bucket(replitNode["accounts"], replitNode["selectedId"], AiService.Replit);
 
         var themes = root["themes"] as JsonObject;
         var settings = root["settings"] as JsonObject;
@@ -46,10 +42,7 @@ public static partial class StateJson
 
         return new AppState(
             claude.Normalized(),
-            replit.Normalized(),
-            Str(root["service"]) == "replit" ? AiService.Replit : AiService.Claude,
             Str(themes?["claude"]) == "light" ? "light" : "dark",
-            Str(themes?["replit"]) == "dark" ? "dark" : "light",
             root["tutorialShown"] is JsonValue t && t.TryGetValue<bool>(out var shown) && shown,
             snippets,
             new AppSettings(
@@ -69,13 +62,8 @@ public static partial class StateJson
         {
             ["accounts"] = AccountsArray(s.Claude.Accounts),
             ["selectedId"] = s.Claude.SelectedId,
-            ["replit"] = new JsonObject
-            {
-                ["accounts"] = AccountsArray(s.Replit.Accounts),
-                ["selectedId"] = s.Replit.SelectedId
-            },
-            ["service"] = s.Service.Key(),
-            ["themes"] = new JsonObject { ["claude"] = s.ClaudeTheme, ["replit"] = s.ReplitTheme },
+            ["service"] = "claude",
+            ["themes"] = new JsonObject { ["claude"] = s.ClaudeTheme },
             ["tutorialShown"] = s.TutorialShown,
             ["snippets"] = new JsonArray(s.Snippets.Select(x => (JsonNode?)JsonValue.Create(x)).ToArray()),
             ["settings"] = new JsonObject

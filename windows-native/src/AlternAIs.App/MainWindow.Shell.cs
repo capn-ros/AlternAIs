@@ -119,8 +119,7 @@ public sealed partial class MainWindow
     /// <summary>Abre una cuenta de cualquiera de los dos servicios.</summary>
     private void OpenAccount(string id)
     {
-        if (_svc.ServiceOf(id) is not { } service) return;
-        _svc.SwitchService(service);
+        if (_svc.ServiceOf(id) is null) return;
         _svc.Select(id);
     }
 
@@ -248,9 +247,6 @@ public sealed partial class MainWindow
         new TourStep("Cambiá y administrá sesiones",
             "Las cuentas aparecen en esta barra. Elegí una con un clic (o Ctrl+1…9, Ctrl+Tab); con clic derecho abrís sus opciones: recargar, marcar un límite, cerrar sesión o eliminarla.",
             () => _railScroll),
-        new TourStep("Claude y Replit",
-            "Arriba elegís la IA. Cada una tiene sus propias cuentas y su tema (Claude oscuro, Replit claro).",
-            () => _railTop),
         new TourStep("Navegador, archivos y mensajes",
             "Abajo están el navegador interno (Ctrl+B), el explorador de archivos (Ctrl+E), los mensajes guardados (Ctrl+M) y los ajustes.",
             () => _railBottom),

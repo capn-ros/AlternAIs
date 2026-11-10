@@ -70,17 +70,6 @@ public class LimitOptionsTests
             new[] { "Dentro de 5 horas", "Dentro de 24 horas", "Dentro de 7 días", "A una hora exacta…" },
             o.Select(x => x.Label));
         Assert.IsType<ExactTimeOption>(o[^1]);
-        Assert.DoesNotContain(o, x => x is MonthlyRenewalOption);
-    }
-
-    [Fact]
-    public void Replit_suma_la_renovacion_mensual_antes_de_la_hora_exacta()
-    {
-        var o = LimitOptions.ForService(AiService.Replit);
-        Assert.Equal(5, o.Count);
-        Assert.IsType<MonthlyRenewalOption>(o[3]);
-        Assert.IsType<ExactTimeOption>(o[4]);
-        Assert.Equal("Dentro de 5 horas (Modo gratis)", o[0].Label);
     }
 
     [Fact]

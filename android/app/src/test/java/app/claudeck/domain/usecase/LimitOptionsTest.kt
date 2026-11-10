@@ -13,15 +13,6 @@ class LimitOptionsTest {
             o.map { it.label }
         )
         assertTrue(o.last() is LimitOption.ExactTime)
-        assertTrue(o.none { it is LimitOption.MonthlyRenewal })
-    }
-
-    @Test fun `Replit suma la renovacion mensual antes de la hora exacta`() {
-        val o = LimitOptions.forService(AiService.REPLIT)
-        assertEquals(5, o.size)
-        assertTrue(o[3] is LimitOption.MonthlyRenewal)
-        assertTrue(o[4] is LimitOption.ExactTime)
-        assertEquals("Dentro de 5 horas (Modo gratis)", o[0].label)
     }
 
     @Test fun `las opciones de horas suman 5, 24 y 168 horas`() {

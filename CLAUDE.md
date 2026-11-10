@@ -2,6 +2,8 @@
 
 > Leé este archivo primero. Cubre arquitectura, funciones, convenciones, build y trampas conocidas, para no tener que re-explorar el código ni leer todo el zip. Si cambiás algo estructural, **actualizá este archivo**.
 
+> **ACTUALIZACIÓN (2026-11-09): se QUITÓ Replit.** La app maneja solo claude.ai (Android: `Service` y `AiService` con un único valor `CLAUDE`; Windows: `enum AiService { Claude }`, `AppState` sin `Replit`/`ReplitTheme`, sin renovación mensual ni `NextMonthlyRenewal`, sin pestañas de servicio). Lo que este archivo dice de Replit/dos servicios/«renovación mensual»/tema claro de Replit es **historia**. Los `accounts.json`/`SharedPreferences` viejos con datos de Replit se leen sin error y esos datos se ignoran. El logo (mitad coral/mitad crema) y el nombre «AlternAIs» no se cambiaron.
+
 > **ACTUALIZACIÓN (2026-11-08): la versión Electron se RETIRÓ.** La carpeta `windows/` y el workflow `windows.yml` ya no existen; Windows es solo `windows-native/` (WinUI 3 + C#). Todo lo que este archivo dice de Electron (`main.js`, `renderer/`, `preload.js`, `fileops.js`, `package.json`, `installer/claudeck.iss`, `npm`) es **historia**: la referencia vigente es §4a–§4e. El instalador usa los BMP de `windows-native/installer/`; `scripts/make_icon.py` ahora genera `windows-native/src/AlternAIs.App/Assets/icon.ico` y esos BMP. El `cd.zip` lleva `android/`, `windows-native/`, `.github/`, `docs/`, `scripts/`. `cd.yml` (copia en `docs/cd.yml`) ya no tiene el job `windows-electron`; hay que pegarlo a mano en `.github/workflows/` y borrar a mano `windows.yml` del repo (Actions no puede tocar workflows).
 
 ## 1. Qué es

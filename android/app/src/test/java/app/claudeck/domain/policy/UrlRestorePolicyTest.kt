@@ -1,7 +1,6 @@
 package app.claudeck.domain.policy
 
 import app.claudeck.domain.model.AiService.CLAUDE
-import app.claudeck.domain.model.AiService.REPLIT
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -36,8 +35,7 @@ class UrlRestorePolicyTest {
         assertNull(claude("https://claude.ai/" + "a".repeat(5000)))
     }
     @Test fun `rechaza texto que no es url`() = assertNull(claude("no es una url ::"))
-    @Test fun `una url de claude no sirve para replit`() {
-        assertNull(UrlRestorePolicy.restorable(REPLIT, "https://claude.ai/chat"))
-        assertEquals("https://replit.com/@u/p", UrlRestorePolicy.restorable(REPLIT, "https://replit.com/@u/p"))
+    @Test fun `una url de otro sitio no sirve`() {
+        assertNull(claude("https://replit.com/@u/p"))
     }
 }

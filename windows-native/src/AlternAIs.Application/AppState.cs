@@ -20,23 +20,22 @@ public sealed record BrowserSettings(string LastUrl = "", string DlMode = "defau
 /// <summary>Todo lo que la app guarda (mismo contenido que el accounts.json de siempre).</summary>
 public sealed record AppState(
     ServiceBucket Claude,
-    ServiceBucket Replit,
-    AiService Service,
     string ClaudeTheme,
-    string ReplitTheme,
     bool TutorialShown,
     IReadOnlyList<string> Snippets,
     AppSettings Settings,
     BrowserSettings Browser)
 {
     public static AppState Initial { get; } = new(
-        ServiceBucket.Empty, ServiceBucket.Empty, AiService.Claude, "dark", "light", false,
+        ServiceBucket.Empty, "dark", false,
         AlternAIs.Domain.Models.Snippets.Defaults, new AppSettings(), new BrowserSettings());
 
-    public ServiceBucket Bucket(AiService s) => s == AiService.Replit ? Replit : Claude;
+    /// <summary>Hoy hay un solo servicio (Claude); se conserva como propiedad para no tocar al resto del código.</summary>
+    public AiService Service => AiService.Claude;
 
-    public AppState WithBucket(AiService s, ServiceBucket b) =>
-        s == AiService.Replit ? this with { Replit = b.Normalized() } : this with { Claude = b.Normalized() };
+    public ServiceBucket Bucket(AiService s) => Claude;
+
+    public AppState WithBucket(AiService s, ServiceBucket b) => this with { Claude = b.Normalized() };
 
     public ServiceBucket Current => Bucket(Service);
 }

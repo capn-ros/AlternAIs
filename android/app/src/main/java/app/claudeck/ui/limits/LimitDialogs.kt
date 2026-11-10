@@ -54,9 +54,6 @@ interface LimitActions {
     /** Marca la cuenta en descanso hasta [untilMs] (epoch ms). */
     fun apply(accountId: String, untilMs: Long)
 
-    /** Replit: abre el selector de fecha de la renovación mensual (sigue siendo el de Material). */
-    fun pickRenewalDate(accountId: String)
-
     fun message(text: String)
 
     /** Colores actuales (cambian con el servicio y el tema), leídos cada vez que se dibuja un diálogo. */
@@ -102,7 +99,6 @@ private fun LimitDialogs(
                         OptionRow(option.label, fg) {
                             when (option) {
                                 is LimitOption.After -> { vm.dismiss(); actions.apply(dialog.accountId, vm.untilFor(option)) }
-                                is LimitOption.MonthlyRenewal -> { vm.dismiss(); actions.pickRenewalDate(dialog.accountId) }
                                 is LimitOption.ExactTime -> vm.openExact(dialog.accountId)
                             }
                         }

@@ -40,13 +40,12 @@ class SettingsViewModelTest {
         assertEquals(ServiceColors.onSurface(AiService.CLAUDE, true), s.onSurface)
     }
 
-    @Test fun `cambiar de servicio o de tema repinta los colores`() {
+    @Test fun `cambiar de tema repinta los colores`() {
         val repo = FakeSettings(claudeDark)
         val vm = SettingsViewModel(repo)
-        repo.flow.value = AppSettings(AiService.REPLIT, dark = false, bubbleEnabled = false)
-        assertEquals(AiService.REPLIT, vm.state.value.service)
-        assertEquals(0xFFFBF8F4.toInt(), vm.state.value.surface)
-        assertEquals(0xFF1F1B18.toInt(), vm.state.value.onSurface)
+        repo.flow.value = AppSettings(AiService.CLAUDE, dark = false, bubbleEnabled = false)
+        assertEquals(0xFFFFFFFF.toInt(), vm.state.value.surface)
+        assertEquals(0xFF1A1A1A.toInt(), vm.state.value.onSurface)
     }
 
     @Test fun `el color de acento lo define la cuenta activa`() {

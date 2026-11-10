@@ -51,26 +51,6 @@ public class ResolveExactTimeTests
     }
 }
 
-public class NextMonthlyRenewalTests
-{
-    private static DateTimeOffset D(int y, int mo, int day, int h = 0) => At(h, 0, day, mo, y);
-    private static DateTimeOffset? Next(int day, DateTimeOffset now) => NextMonthlyRenewal.Invoke(day, now, Zone);
-
-    [Fact] public void Un_dia_futuro_de_este_mes() => Assert.Equal(D(2026, 10, 31), Next(31, D(2026, 10, 29, 12)));
-    [Fact] public void Un_dia_ya_pasado_va_al_mes_siguiente() => Assert.Equal(D(2026, 11, 5), Next(5, D(2026, 10, 29, 12)));
-    [Fact] public void El_mismo_dia_pero_pasada_la_medianoche_va_al_mes_siguiente() => Assert.Equal(D(2026, 11, 29), Next(29, D(2026, 10, 29, 12)));
-    [Fact] public void Dia_31_en_un_mes_de_30_usa_el_ultimo_dia() => Assert.Equal(D(2026, 11, 30), Next(31, D(2026, 11, 2)));
-    [Fact] public void Dia_30_en_febrero_usa_el_28_en_anio_comun() => Assert.Equal(D(2027, 2, 28), Next(30, D(2027, 2, 1)));
-    [Fact] public void Diciembre_pasa_a_enero_del_anio_siguiente() => Assert.Equal(D(2027, 1, 10), Next(10, D(2026, 12, 20)));
-
-    [Fact]
-    public void Dia_invalido_da_nulo()
-    {
-        Assert.Null(Next(0, D(2026, 10, 1)));
-        Assert.Null(Next(32, D(2026, 10, 1)));
-    }
-}
-
 public class RemainingTimeTests
 {
     private const long Min = 60_000L;

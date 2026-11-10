@@ -213,8 +213,6 @@ internal static class Dialogs
                 return after.UntilMs(clock.NowMs);
             case ExactTimeOption:
                 return await ExactTime(now, clock.Zone);
-            case MonthlyRenewalOption:
-                return await MonthlyRenewal(now, clock.Zone);
             default:
                 return null;
         }
@@ -247,22 +245,6 @@ internal static class Dialogs
             result = target.Value.ToUnixTimeMilliseconds();
         };
         d.Opened += (_, _) => hour.Focus(FocusState.Programmatic);
-        await Show(d);
-        return result;
-    }
-
-    private static async Task<long?> MonthlyRenewal(DateTimeOffset now, TimeZoneInfo zone)
-    {
-        var day = new NumberBox { Header = "Día del mes de la renovación", Minimum = 1, Maximum = 31, Value = 1, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline };
-        var d = Make("Renovación mensual", "Marcar");
-        d.Content = day;
-        long? result = null;
-        d.PrimaryButtonClick += (_, args) =>
-        {
-            var target = NextMonthlyRenewal.Invoke((int)day.Value, now, zone);
-            if (target is null) { args.Cancel = true; return; }
-            result = target.Value.ToUnixTimeMilliseconds();
-        };
         await Show(d);
         return result;
     }
