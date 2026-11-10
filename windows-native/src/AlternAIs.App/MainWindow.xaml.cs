@@ -162,6 +162,7 @@ public sealed partial class MainWindow : Window
         Root.RequestedTheme = pal.ElementTheme;
         Root.Background = Palette.Brush(pal.Surface);
         Dialogs.Theme = pal.ElementTheme;
+        _views.SetDark(pal.Dark);
         _empty.Foreground = Palette.Brush(pal.Muted);
         _rail.Background = Palette.Brush(pal.Stripe);
         _rail.BorderBrush = Palette.Brush(accent);

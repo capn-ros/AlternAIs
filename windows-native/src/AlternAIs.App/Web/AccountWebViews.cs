@@ -33,6 +33,22 @@ internal sealed class AccountWebViews
     public static string ProfilesDir =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Claudeck", "WebView2");
 
+    private bool _dark = true;
+
+    /// <summary>Tema de las páginas (prefers-color-scheme): oscuro o claro, igual que el de la app.</summary>
+    public void SetDark(bool dark)
+    {
+        _dark = dark;
+        foreach (var wv in _views.Values) ApplyScheme(wv.CoreWebView2);
+    }
+
+    private void ApplyScheme(CoreWebView2? core)
+    {
+        if (core is null) return;
+        try { core.Profile.PreferredColorScheme = _dark ? CoreWebView2PreferredColorScheme.Dark : CoreWebView2PreferredColorScheme.Light; }
+        catch (Exception) { }
+    }
+
     public bool Has(string id) => _views.ContainsKey(id);
 
     /// <summary>¿La página de esta cuenta está cargando por primera vez (o por «Recargar»)?</summary>
@@ -75,6 +91,7 @@ internal sealed class AccountWebViews
     private async Task Configure(WebView2 wv, string id, AiService service)
     {
         var core = wv.CoreWebView2;
+        ApplyScheme(core);
         core.NewWindowRequested += (_, e) =>
         {
             e.Handled = true;
