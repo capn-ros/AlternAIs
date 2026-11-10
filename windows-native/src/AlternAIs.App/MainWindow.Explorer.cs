@@ -64,7 +64,7 @@ public sealed partial class MainWindow
     {
         var b = new Button
         {
-            Content = new FontIcon { Glyph = glyph, FontSize = 15 }, Width = 36, Height = 36, Padding = new Thickness(0),
+            Content = AccentIcons.Create(glyph, 15), Width = 36, Height = 36, Padding = new Thickness(0),
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0)
         };
         ToolTipService.SetToolTip(b, tip);
@@ -79,7 +79,7 @@ public sealed partial class MainWindow
         try { if (Directory.Exists(FxTemp)) Directory.Delete(FxTemp, recursive: true); } catch (Exception) { /* en uso: no importa */ }
 
         // Cabecera: subir · «Archivos» + ruta · abrir en el Explorador · cerrar
-        _fxUp.Content = new FontIcon { Glyph = "", FontSize = 15 };
+        _fxUp.Content = AccentIcons.Create("", 15);
         _fxUp.Width = 36; _fxUp.Height = 36; _fxUp.Padding = new Thickness(0);
         _fxUp.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         _fxUp.BorderThickness = new Thickness(0);
@@ -395,7 +395,7 @@ public sealed partial class MainWindow
         var menu = new MenuFlyout();
         void Item(string text, string glyph, Action action)
         {
-            var item = new MenuFlyoutItem { Text = text, Icon = new FontIcon { Glyph = glyph } };
+            var item = new MenuFlyoutItem { Text = text, Icon = AccentIcons.Create(glyph) };
             item.Click += (_, _) => action();
             menu.Items.Add(item);
         }

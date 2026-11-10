@@ -359,11 +359,11 @@ public sealed partial class MainWindow
     {
         if (_browserPanel is not null) return _browserPanel;
 
-        var back = new Button { Content = new FontIcon { Glyph = "", FontSize = 14 }, Width = 40 };
-        var fwd = new Button { Content = new FontIcon { Glyph = "", FontSize = 14 }, Width = 40, Margin = new Thickness(4, 0, 0, 0) };
-        var reload = new Button { Content = new FontIcon { Glyph = "", FontSize = 14 }, Width = 40, Margin = new Thickness(4, 0, 0, 0) };
+        var back = new Button { Content = AccentIcons.Create("", 14), Width = 40 };
+        var fwd = new Button { Content = AccentIcons.Create("", 14), Width = 40, Margin = new Thickness(4, 0, 0, 0) };
+        var reload = new Button { Content = AccentIcons.Create("", 14), Width = 40, Margin = new Thickness(4, 0, 0, 0) };
         var url = new TextBox { PlaceholderText = "Buscá o escribí una dirección", Margin = new Thickness(8, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
-        var close = new Button { Content = new FontIcon { Glyph = "", FontSize = 14 }, Width = 40 };
+        var close = new Button { Content = AccentIcons.Create("", 14), Width = 40 };
         var wv = new WebView2();
         _browserView = wv;
 

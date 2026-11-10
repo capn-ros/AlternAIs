@@ -100,6 +100,18 @@ object ExplorerRules {
         }
     }
 
+    /** Accesos rápidos que quedan siempre a la vista en la barra (no se mueven al botón flotante). */
+    fun placeActions(hasAccess: Boolean, inArchive: Boolean = false): List<BarAction> =
+        if (!hasAccess || inArchive) emptyList() else listOf(BarAction.DOWNLOADS, BarAction.STORAGE)
+
+    /** Todo lo demás (subir, copiar, mover, borrar, nueva carpeta, orden…) va en el menú del botón flotante. */
+    fun fabActions(
+        hasAccess: Boolean, picking: Boolean, selectedCount: Int, onlySelectedIsZip: Boolean, clipCount: Int,
+        inArchive: Boolean = false, archiveWritable: Boolean = true
+    ): List<BarAction> =
+        barActions(hasAccess, picking, selectedCount, onlySelectedIsZip, clipCount, inArchive, archiveWritable)
+            .filterNot { it == BarAction.DOWNLOADS || it == BarAction.STORAGE }
+
     /** Texto de un botón; [sortLabel] es el orden actual (Fecha, Nombre, Tamaño). */
     fun barLabel(a: BarAction, selectedCount: Int, clipCount: Int, sortLabel: String): String = when (a) {
         BarAction.PICK_UPLOAD -> "Subir ($selectedCount)"

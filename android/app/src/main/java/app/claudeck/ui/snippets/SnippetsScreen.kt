@@ -69,7 +69,7 @@ fun createSnippetsView(
         val list by vm.snippets.collectAsStateWithLifecycle()
         AlternTheme(dark = ColorUtils.calculateLuminance(surface) < 0.5) {
             SnippetsScreen(
-                snippets = list, surface = Color(surface), fg = Color(onSurface), accent = Color(accent),
+                snippets = list, surface = Color(surface), fg = Color(onSurface), accent = Color(app.claudeck.ui.theme.AccentState.color),
                 onAdd = vm::add, onReplace = vm::replace, onMoveUp = vm::moveUp, onRemove = vm::remove,
                 actions = actions
             )

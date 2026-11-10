@@ -177,6 +177,7 @@ public sealed partial class MainWindow : Window
         _titleBar.Background = Palette.Brush(pal.Stripe);
         _titleBar.BorderBrush = Palette.Brush(accent);
         _titleText.Foreground = Palette.Brush(pal.OnSurface);
+        AccentIcons.Apply(accent); // íconos y controles de los paneles, del color de la cuenta
         ApplyCaptionColors(pal);
         RefreshTitle();
     }
@@ -584,7 +585,7 @@ public sealed partial class MainWindow : Window
         var menu = new MenuFlyout();
         void Item(string text, string glyph, Func<Task> action)
         {
-            var item = new MenuFlyoutItem { Text = text, Icon = new FontIcon { Glyph = glyph } };
+            var item = new MenuFlyoutItem { Text = text, Icon = AccentIcons.Create(glyph) };
             item.Click += async (_, _) => await action();
             menu.Items.Add(item);
         }

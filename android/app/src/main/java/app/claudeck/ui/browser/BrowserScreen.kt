@@ -172,7 +172,7 @@ fun createBrowserBar(
     setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
     setContent {
         AlternTheme(dark = androidx.core.graphics.ColorUtils.calculateLuminance(surface) < 0.5) {
-            BrowserBar(state, Color(onSurface), Color(accent), actions)
+            BrowserBar(state, Color(onSurface), Color(app.claudeck.ui.theme.AccentState.color), actions)
         }
     }
 }

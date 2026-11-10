@@ -89,6 +89,27 @@ class ExplorerRulesTest {
         assertEquals(BarAction.PICK_UPLOAD, ExplorerRules.barActions(true, true, 2, false, 0).first())
     }
 
+    @Test fun `la barra fija solo tiene Descargas y Almacenamiento`() {
+        assertEquals(listOf(BarAction.DOWNLOADS, BarAction.STORAGE), ExplorerRules.placeActions(true))
+        assertTrue(ExplorerRules.placeActions(false).isEmpty())
+        assertTrue(ExplorerRules.placeActions(true, inArchive = true).isEmpty())
+    }
+
+    @Test fun `el boton flotante tiene el resto de las acciones`() {
+        assertEquals(
+            listOf(BarAction.NEW_FOLDER, BarAction.SORT),
+            ExplorerRules.fabActions(true, false, 0, false, 0)
+        )
+        assertEquals(
+            listOf(BarAction.PASTE, BarAction.DISCARD_CLIP, BarAction.NEW_FOLDER, BarAction.SORT),
+            ExplorerRules.fabActions(true, false, 0, false, 2)
+        )
+        assertEquals(
+            listOf(BarAction.PICK_UPLOAD, BarAction.SYSTEM_PICKER, BarAction.CANCEL),
+            ExplorerRules.fabActions(true, true, 1, false, 0)
+        )
+    }
+
     @Test fun `textos de los botones`() {
         assertEquals("Subir (2)", ExplorerRules.barLabel(BarAction.PICK_UPLOAD, 2, 0, "Fecha"))
         assertEquals("Pegar aquí (3)", ExplorerRules.barLabel(BarAction.PASTE, 0, 3, "Fecha"))

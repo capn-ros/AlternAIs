@@ -37,7 +37,7 @@ object FolderPicker {
             .setMessage(rel)
             .setItems(labels.toTypedArray()) { _, which -> actions[which]() }
             .setNegativeButton("Cancelar", null)
-            .show()
+            .showTinted()
     }
 
     private fun newFolder(act: AppCompatActivity, root: File, dir: File, title: String, onPick: (File) -> Unit) {
@@ -61,6 +61,6 @@ object FolderPicker {
                 }
             }
             .setNegativeButton("Cancelar") { _, _ -> show(act, root, dir, title, onPick) }
-            .show()
+            .showTinted()
     }
 }

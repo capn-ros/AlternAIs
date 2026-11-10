@@ -9,10 +9,12 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -26,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -46,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -133,6 +137,38 @@ fun ExplorerScreen(
     val atRoot = state.atRoot()
     val only = state.selected.singleOrNull()
 
+    val onlyIsZip = only != null && only.isFile && ArchiveRules.isArchive(only.name)
+    val inArchive = state.archive != null
+    val places = ExplorerRules.placeActions(state.hasAccess, inArchive)
+    val menu = ExplorerRules.fabActions(
+        state.hasAccess, state.picking, state.selected.size, onlyIsZip, state.clip.size,
+        inArchive = inArchive, archiveWritable = state.archiveWritable
+    )
+    val perform: (BarAction) -> Unit = { a ->
+        when (a) {
+            BarAction.PICK_UPLOAD -> actions.finishPick()
+            BarAction.DOWNLOADS -> actions.goDownloads()
+            BarAction.STORAGE -> actions.goStorage()
+            BarAction.SYSTEM_PICKER -> actions.systemPicker()
+            BarAction.CANCEL -> actions.close()
+            BarAction.COPY -> actions.setClip(state.selected.toList(), false)
+            BarAction.MOVE -> actions.setClip(state.selected.toList(), true)
+            BarAction.RENAME -> only?.let { dlg = Dlg.Rename(it) }
+            BarAction.EXTRACT ->
+                if (state.archive != null) actions.extractEntries(state.selected.toList())
+                else only?.let { dlg = Dlg.Zip(it) }
+            BarAction.EXTRACT_ALL -> state.archive?.let { actions.extract(it, true) }
+            BarAction.DELETE -> if (state.selected.isNotEmpty()) dlg = Dlg.Delete(state.selected.toList())
+            BarAction.SELECT_ALL -> actions.selectAll()
+            BarAction.CANCEL_SELECTION -> actions.clearSelection()
+            BarAction.PASTE -> actions.paste()
+            BarAction.DISCARD_CLIP -> actions.discardClip()
+            BarAction.NEW_FOLDER -> dlg = Dlg.NewFolder
+            BarAction.SORT -> actions.nextSort()
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         // Cabecera: subir · carpeta y ruta · cerrar
         Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -162,13 +198,8 @@ fun ExplorerScreen(
             )
         }
 
-        // Barra de acciones (cambia si hay selección o portapapeles).
-        val bar = ExplorerRules.barActions(
-            state.hasAccess, state.picking, state.selected.size,
-            only != null && only.isFile && ArchiveRules.isArchive(only.name), state.clip.size,
-            inArchive = state.archive != null, archiveWritable = state.archiveWritable
-        )
-        if (bar.isNotEmpty()) {
+        // Barra fija: solo los lugares (Descargas y Almacenamiento) y, si hay selección, cuántos elementos.
+        if (places.isNotEmpty() || (!state.picking && state.selected.isNotEmpty())) {
             Row(
                 Modifier.horizontalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -179,30 +210,9 @@ fun ExplorerScreen(
                         color = muted, fontSize = 13.sp, modifier = Modifier.padding(start = 4.dp, end = 12.dp)
                     )
                 }
-                for (a in bar) {
-                    val label = ExplorerRules.barLabel(a, state.selected.size, state.clip.size, state.sort.label)
-                    Chip(label, barIcon(a), fg, accent) {
-                        when (a) {
-                            BarAction.PICK_UPLOAD -> actions.finishPick()
-                            BarAction.DOWNLOADS -> actions.goDownloads()
-                            BarAction.STORAGE -> actions.goStorage()
-                            BarAction.SYSTEM_PICKER -> actions.systemPicker()
-                            BarAction.CANCEL -> actions.close()
-                            BarAction.COPY -> actions.setClip(state.selected.toList(), false)
-                            BarAction.MOVE -> actions.setClip(state.selected.toList(), true)
-                            BarAction.RENAME -> only?.let { dlg = Dlg.Rename(it) }
-                            BarAction.EXTRACT ->
-                                if (state.archive != null) actions.extractEntries(state.selected.toList())
-                                else only?.let { dlg = Dlg.Zip(it) }
-                            BarAction.EXTRACT_ALL -> state.archive?.let { actions.extract(it, true) }
-                            BarAction.DELETE -> if (state.selected.isNotEmpty()) dlg = Dlg.Delete(state.selected.toList())
-                            BarAction.SELECT_ALL -> actions.selectAll()
-                            BarAction.CANCEL_SELECTION -> actions.clearSelection()
-                            BarAction.PASTE -> actions.paste()
-                            BarAction.DISCARD_CLIP -> actions.discardClip()
-                            BarAction.NEW_FOLDER -> dlg = Dlg.NewFolder
-                            BarAction.SORT -> actions.nextSort()
-                        }
+                for (a in places) {
+                    Chip(ExplorerRules.barLabel(a, state.selected.size, state.clip.size, state.sort.label), barIcon(a), fg, accent) {
+                        perform(a)
                     }
                 }
             }
@@ -235,7 +245,7 @@ fun ExplorerScreen(
                     color = muted, fontSize = 15.sp, textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxSize().padding(top = 48.dp)
                 )
-                else -> LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 12.dp)) {
+                else -> LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = if (menu.isNotEmpty()) 88.dp else 12.dp)) {
                     items(state.entries, key = { it.file.path }) { e ->
                         val on = state.selected.contains(e.file)
                         Row(
@@ -284,6 +294,10 @@ fun ExplorerScreen(
                     }
                 }
             }
+        }
+    }
+        if (menu.isNotEmpty()) {
+            ExplorerFab(menu, state.selected.size, state.clip.size, state.sort.label, surface, fg, accent, perform)
         }
     }
 
@@ -454,6 +468,72 @@ private fun Chip(label: String, @DrawableRes icon: Int, fg: Color, accent: Color
     }
 }
 
+/** Botón flotante abajo a la derecha: abre el menú con todas las acciones (en modo «subir» agrega «Subir (n)» a la vista). */
+@Composable
+private fun BoxScope.ExplorerFab(
+    menu: List<BarAction>, selectedCount: Int, clipCount: Int, sortLabel: String,
+    surface: Color, fg: Color, accent: Color, perform: (BarAction) -> Unit
+) {
+    var open by remember(menu) { mutableStateOf(false) }
+    val upload = menu.firstOrNull { it == BarAction.PICK_UPLOAD }
+    val items = menu.filter { it != BarAction.PICK_UPLOAD }
+
+    if (open) {
+        // Tocar fuera del menú lo cierra.
+        Box(
+            Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { open = false }
+        )
+    }
+    Column(
+        Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 16.dp),
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        if (open && items.isNotEmpty()) {
+            Column(
+                Modifier.shadow(8.dp, RoundedCornerShape(18.dp))
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(surface)
+                    .border(BorderStroke(1.dp, fg.copy(alpha = 0.24f)), RoundedCornerShape(18.dp))
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+            ) {
+                for (a in items) {
+                    MenuRow(
+                        ExplorerRules.barLabel(a, selectedCount, clipCount, sortLabel), barIcon(a), fg,
+                        if (a == BarAction.DELETE) DeleteRed else accent
+                    ) { open = false; perform(a) }
+                }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (upload != null) {
+                Row(
+                    Modifier.shadow(6.dp, RoundedCornerShape(28.dp)).clip(RoundedCornerShape(28.dp)).background(accent)
+                        .clickable { perform(upload) }.padding(horizontal = 18.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(painterResource(R.drawable.ic_upload), null, tint = Color.White, modifier = Modifier.size(20.dp))
+                    Text(ExplorerRules.barLabel(upload, selectedCount, clipCount, sortLabel), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            if (items.isNotEmpty()) {
+                Box(
+                    Modifier.size(56.dp).shadow(6.dp, CircleShape).clip(CircleShape).background(accent)
+                        .clickable { open = !open },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painterResource(if (open) R.drawable.ic_close else R.drawable.ic_more),
+                        contentDescription = if (open) "Cerrar opciones" else "Opciones",
+                        tint = Color.White, modifier = Modifier.size(26.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun MenuRow(label: String, @DrawableRes icon: Int, fg: Color, tint: Color, onClick: () -> Unit) {
     Row(
@@ -481,7 +561,7 @@ fun createExplorerView(
     setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
     setContent {
         AlternTheme(dark = androidx.core.graphics.ColorUtils.calculateLuminance(surface) < 0.5) {
-            ExplorerScreen(state, Color(surface), Color(onSurface), Color(accent), actions)
+            ExplorerScreen(state, Color(surface), Color(onSurface), Color(app.claudeck.ui.theme.AccentState.color), actions)
         }
     }
 }

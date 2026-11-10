@@ -118,7 +118,6 @@ import com.google.android.material.datepicker.MaterialDatePicker
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.progressindicator.LinearProgressIndicator
-import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.timepicker.MaterialTimePicker
 import com.google.android.material.timepicker.TimeFormat
@@ -536,7 +535,7 @@ class MainActivity : AppCompatActivity() {
                         "Mientras tanto solo se puede usar una cuenta."
                 )
                 .setPositiveButton("Entendido", null)
-                .show()
+                .showTinted()
         }
     }
 
@@ -588,13 +587,13 @@ class MainActivity : AppCompatActivity() {
                         .setView(holder)
                         .setPositiveButton("Enviar") { _, _ -> sendNow(acc, input.text?.toString().orEmpty().trim()) }
                         .setNegativeButton("Cancelar", null)
-                        .show()
+                        .showTinted()
                 } else {
                     sendNow(acc, snips[which])
                 }
             }
             .setNegativeButton("Ahora no", null)
-            .show()
+            .showTinted()
     }
 
     private fun sendNow(acc: Account, text: String) {
@@ -986,7 +985,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             .setNegativeButton("Cerrar", null)
-            .show()
+            .showTinted()
     }
 
     /** Mensajes guardados: cajón con la lista; tocar uno lo escribe en el chat de la cuenta activa. */
@@ -1153,29 +1152,66 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var noticeView: TextView? = null
+
+    /**
+     * Aviso corto arriba, como una pastilla. Sin acción NO atrapa toques (pasan al botón que tenga debajo) y se va
+     * solo en pocos segundos. Con acción («Abrir») hay que tocarlo para usarla; se descarta deslizándolo hacia arriba.
+     */
     private fun snack(msg: String, action: String? = null, onAction: (() -> Unit)? = null) {
-        val s = Snackbar.make(container, msg, Snackbar.LENGTH_LONG)
-        if (action != null && onAction != null) s.setAction(action) { onAction() }
-        // Los avisos salen arriba (debajo de la barra de estado) en vez de abajo, sobre la barra de cuentas.
-        s.animationMode = Snackbar.ANIMATION_MODE_FADE
-        val v = s.view
-        val top = (androidx.core.view.ViewCompat.getRootWindowInsets(container)
-            ?.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())?.top ?: 0) + dp(8)
-        when (val lp = v.layoutParams) {
-            is android.widget.FrameLayout.LayoutParams -> {
-                lp.gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL
-                lp.topMargin = top
-                lp.bottomMargin = 0
-                v.layoutParams = lp
-            }
-            is androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams -> {
-                lp.gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL
-                lp.topMargin = top
-                lp.bottomMargin = 0
-                v.layoutParams = lp
+        noticeView?.let { it.animate().cancel(); container.removeView(it) }
+        val withAction = action != null && onAction != null
+        val tv = TextView(this)
+        noticeView = tv
+        tv.text = if (withAction) "$msg  ·  $action" else msg
+        tv.setTextColor(store.surface)
+        tv.textSize = 13f
+        tv.maxLines = 2
+        tv.ellipsize = android.text.TextUtils.TruncateAt.END
+        tv.setPadding(dp(14), dp(8), dp(14), dp(8))
+        tv.background = GradientDrawable().apply {
+            cornerRadius = dp(18).toFloat()
+            setColor(ColorUtils.setAlphaComponent(store.onSurface, 0xE6))
+        }
+        tv.elevation = dp(12).toFloat()
+        tv.maxWidth = (resources.displayMetrics.widthPixels * 0.86f).toInt()
+        // Sin acción: no clickeable, así los toques atraviesan el aviso.
+        tv.isClickable = false
+        tv.isFocusable = false
+
+        fun dismiss() {
+            if (noticeView !== tv) return
+            noticeView = null
+            tv.animate().cancel()
+            tv.animate().alpha(0f).setDuration(180).withEndAction { container.removeView(tv) }.start()
+        }
+
+        if (withAction) {
+            var downY = 0f
+            tv.setOnTouchListener { v, ev ->
+                when (ev.action) {
+                    MotionEvent.ACTION_DOWN -> { downY = ev.rawY; true }
+                    MotionEvent.ACTION_UP -> {
+                        if (downY - ev.rawY > dp(16)) dismiss() else { dismiss(); onAction?.invoke() }
+                        v.performClick()
+                        true
+                    }
+                    else -> true
+                }
             }
         }
-        s.show()
+
+        val top = (androidx.core.view.ViewCompat.getRootWindowInsets(container)
+            ?.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())?.top ?: 0) + dp(8)
+        container.addView(
+            tv,
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = top }
+        )
+        tv.bringToFront()
+        tv.alpha = 0f
+        tv.animate().alpha(1f).setDuration(160).start()
+        tv.postDelayed({ dismiss() }, if (withAction) 4000L else 2200L)
     }
 
     private fun pop(v: View) {
@@ -1325,6 +1361,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun retintIcons() {
         val c = accent()
+        app.claudeck.ui.theme.AccentState.color = c // Compose (explorador, mensajes, navegador, diálogos) sigue a la cuenta
+        // Botones de vistas clásicas (pantalla vacía y de error): también del color de la cuenta.
+        for (id in intArrayOf(R.id.btnAddEmpty, R.id.btnRetry)) {
+            findViewById<MaterialButton>(id)?.apply {
+                backgroundTintList = ColorStateList.valueOf(c)
+                setTextColor(if (ColorUtils.calculateLuminance(c) > 0.6) 0xFF1F1B18.toInt() else Color.WHITE)
+            }
+        }
         btnMore.imageTintList = ColorStateList.valueOf(c)
         btnSnippets.imageTintList = ColorStateList.valueOf(c)
         btnFiles.imageTintList = ColorStateList.valueOf(c)
@@ -2173,7 +2217,7 @@ class MainActivity : AppCompatActivity() {
                 .setTitle("Falta actualizar el WebView")
                 .setMessage("Para usar más de una cuenta hay que actualizar Android System WebView desde Play Store.")
                 .setPositiveButton("Entendido", null)
-                .show()
+                .showTinted()
             return
         }
         showAccountDialog(null)
@@ -2329,7 +2373,7 @@ class MainActivity : AppCompatActivity() {
                     "No es una aplicación oficial de Anthropic. Si el acceso con Google falla en el navegador integrado, iniciá sesión con tu correo electrónico."
             )
             .setPositiveButton("Listo", null)
-            .show()
+            .showTinted()
     }
 
     // ---------------------------------------------------------------- Tutorial de primera ejecución
@@ -2581,7 +2625,7 @@ class MainActivity : AppCompatActivity() {
             .setMessage(message)
             .setPositiveButton("Sí") { _, _ -> onYes() }
             .setNegativeButton("Cancelar", null)
-            .show()
+            .showTinted()
     }
 
     // ---------------------------------------------------------------- Burbuja flotante
@@ -2607,7 +2651,7 @@ class MainActivity : AppCompatActivity() {
                     )
                 }
                 .setNegativeButton("Cancelar", null)
-                .show()
+                .showTinted()
             return
         }
         askNotificationPermissionThen {
@@ -2683,7 +2727,7 @@ class MainActivity : AppCompatActivity() {
                 .setTitle("Cuentas exportadas")
                 .setMessage("Se guardaron $total cuentas. El archivo no incluye las sesiones: al importarlo en otro dispositivo vas a tener que iniciar sesión en cada cuenta.")
                 .setPositiveButton("Entendido", null)
-                .show()
+                .showTinted()
         } catch (e: Exception) {
             snack("No se pudo exportar")
         }
@@ -2746,7 +2790,7 @@ class MainActivity : AppCompatActivity() {
                         ". Iniciá sesión en cada una: las sesiones no se copian entre dispositivos."
                 )
                 .setPositiveButton("Entendido", null)
-                .show()
+                .showTinted()
         } catch (e: Exception) {
             snack("El archivo no es válido")
         }
@@ -2824,7 +2868,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             .setNegativeButton("Ahora no", null)
-            .show()
+            .showTinted()
     }
 
     private fun ownAutoReply(acc: Account) {
@@ -2840,7 +2884,7 @@ class MainActivity : AppCompatActivity() {
             .setView(holder)
             .setPositiveButton("Guardar") { _, _ -> setAutoReply(acc, input.text?.toString().orEmpty().trim()) }
             .setNegativeButton("Cancelar", null)
-            .show()
+            .showTinted()
     }
 
     private fun setAutoReply(acc: Account, text: String) {

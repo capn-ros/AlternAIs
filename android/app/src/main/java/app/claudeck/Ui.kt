@@ -63,3 +63,18 @@ object Ui {
         return bmp
     }
 }
+
+/** Muestra el diálogo con los botones del color de la cuenta activa (en vez del color fijo de la marca). */
+fun com.google.android.material.dialog.MaterialAlertDialogBuilder.showTinted(): androidx.appcompat.app.AlertDialog {
+    val d = create()
+    d.setOnShowListener {
+        val c = app.claudeck.ui.theme.AccentState.color
+        for (b in intArrayOf(
+            androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE,
+            androidx.appcompat.app.AlertDialog.BUTTON_NEGATIVE,
+            androidx.appcompat.app.AlertDialog.BUTTON_NEUTRAL
+        )) d.getButton(b)?.setTextColor(c)
+    }
+    d.show()
+    return d
+}
