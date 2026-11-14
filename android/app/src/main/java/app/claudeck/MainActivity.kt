@@ -38,6 +38,7 @@ import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.BroadcastReceiver
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -2052,8 +2053,13 @@ class MainActivity : AppCompatActivity() {
 
     /** Descarga normal (http/https) con el DownloadManager del sistema, usando las cookies de la cuenta. */
     private fun enqueueDownload(accId: String?, url: String, ua: String?, cd: String?, mime: String?) {
+        val wanted = try { URLUtil.guessFileName(url, cd, mime) } catch (_: Exception) { null }
+        if (wanted == null) { snack("No se pudo descargar el archivo"); return }
+        resolveDownloadName(wanted) { name -> startEnqueue(accId, url, ua, mime, name) }
+    }
+
+    private fun startEnqueue(accId: String?, url: String, ua: String?, mime: String?, name: String) {
         try {
-            val name = URLUtil.guessFileName(url, cd, mime)
             val req = DownloadManager.Request(Uri.parse(url))
             if (!mime.isNullOrBlank()) req.setMimeType(mime)
             val cookie = cookiesFor(accId, url)
@@ -2109,8 +2115,7 @@ class MainActivity : AppCompatActivity() {
                 val mime = o.optString("mime").ifBlank { "application/octet-stream" }
                 val name = cleanFileName(o.optString("name"), mime)
                 val bytes = Base64.decode(o.optString("data"), Base64.DEFAULT)
-                val uri = saveToDownloads(name, mime, bytes)
-                runOnUiThread { onSaved(name, mime, uri) }
+                runOnUiThread { saveBytesAsking(name, mime, bytes) }
             } catch (e: Exception) {
                 runOnUiThread { snack("No se pudo guardar el archivo") }
             }
@@ -2127,12 +2132,115 @@ class MainActivity : AppCompatActivity() {
                 val bytes = if (header.contains(";base64")) Base64.decode(payload, Base64.DEFAULT)
                 else Uri.decode(payload).toByteArray()
                 val name = cleanFileName("", mime)
-                val uri = saveToDownloads(name, mime, bytes)
-                runOnUiThread { onSaved(name, mime, uri) }
+                runOnUiThread { saveBytesAsking(name, mime, bytes) }
             } catch (e: Exception) {
                 runOnUiThread { snack("No se pudo guardar el archivo") }
             }
         }.start()
+    }
+
+    /** Si ya hay un archivo con ese nombre en Descargas pregunta qué hacer; después guarda los bytes en un hilo. */
+    private fun saveBytesAsking(name: String, mime: String, bytes: ByteArray) {
+        resolveDownloadName(name) { finalName ->
+            Thread {
+                try {
+                    val uri = saveToDownloads(finalName, mime, bytes)
+                    runOnUiThread { onSaved(finalName, mime, uri) }
+                } catch (e: Exception) {
+                    runOnUiThread { snack("No se pudo guardar el archivo") }
+                }
+            }.start()
+        }
+    }
+
+    /** Uri del archivo de Descargas con ese nombre (MediaStore o file://), o null si no existe. */
+    private fun existingDownload(name: String): Uri? {
+        if (Build.VERSION.SDK_INT >= 29) {
+            try {
+                contentResolver.query(
+                    MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    arrayOf(MediaStore.Downloads._ID),
+                    "${MediaStore.Downloads.DISPLAY_NAME}=? AND ${MediaStore.Downloads.RELATIVE_PATH}=? AND ${MediaStore.Downloads.IS_PENDING}=0",
+                    arrayOf(name, Environment.DIRECTORY_DOWNLOADS + "/"),
+                    null
+                )?.use { c ->
+                    if (c.moveToFirst()) return ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, c.getLong(0))
+                }
+            } catch (_: Exception) {
+            }
+        }
+        val f = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), name)
+        return if (f.exists()) Uri.fromFile(f) else null
+    }
+
+    /** Primer nombre libre tipo «nombre (1).ext». */
+    private fun freeDownloadName(name: String): String {
+        val dot = name.lastIndexOf('.')
+        val base = if (dot > 0) name.substring(0, dot) else name
+        val ext = if (dot > 0) name.substring(dot) else ""
+        var n = 1
+        while (true) {
+            val c = "$base ($n)$ext"
+            if (existingDownload(c) == null) return c
+            n++
+        }
+    }
+
+    private fun removeDownload(existing: Uri): Boolean = try {
+        if (existing.scheme == "file") File(existing.path ?: "").delete()
+        else contentResolver.delete(existing, null, null) > 0
+    } catch (_: Exception) {
+        false
+    }
+
+    /**
+     * Si [name] ya existe en Descargas pregunta: Reemplazar / Renombrar / Cancelar. Llama a [onResolved] con el nombre
+     * definitivo (nunca si se cancela). Si no existe, lo llama enseguida con el mismo nombre.
+     */
+    private fun resolveDownloadName(name: String, onResolved: (String) -> Unit) {
+        val existing = existingDownload(name)
+        if (existing == null) {
+            onResolved(name)
+            return
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Ya existe un archivo")
+            .setMessage("En Descargas ya hay «$name». ¿Querés reemplazarlo o guardar este con otro nombre?")
+            .setPositiveButton("Reemplazar") { _, _ ->
+                if (removeDownload(existing)) {
+                    onResolved(name)
+                } else {
+                    val alt = freeDownloadName(name)
+                    snack("No se pudo reemplazar el original; se guarda como $alt")
+                    onResolved(alt)
+                }
+            }
+            .setNeutralButton("Renombrar") { _, _ -> askNewDownloadName(name, onResolved) }
+            .setNegativeButton("Cancelar") { _, _ -> snack("Descarga cancelada") }
+            .setOnCancelListener { snack("Descarga cancelada") }
+            .showTinted()
+    }
+
+    private fun askNewDownloadName(name: String, onResolved: (String) -> Unit) {
+        val suggested = freeDownloadName(name)
+        val input = TextInputEditText(this)
+        input.setText(suggested)
+        input.setSingleLine()
+        val dot = suggested.lastIndexOf('.')
+        input.setSelection(0, if (dot > 0) dot else suggested.length)
+        val holder = FrameLayout(this)
+        holder.setPadding(dp(20), dp(8), dp(20), 0)
+        holder.addView(input, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Nuevo nombre")
+            .setView(holder)
+            .setPositiveButton("Guardar") { _, _ ->
+                val typed = input.text?.toString().orEmpty().trim()
+                // Si el nombre elegido también existe, vuelve a preguntar.
+                resolveDownloadName(if (typed.isEmpty()) suggested else cleanFileName(typed, "application/octet-stream"), onResolved)
+            }
+            .setNegativeButton("Cancelar") { _, _ -> snack("Descarga cancelada") }
+            .showTinted()
     }
 
     private fun cleanFileName(raw: String, mime: String): String {
