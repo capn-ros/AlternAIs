@@ -74,6 +74,9 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
     val webView: WebView get() = active().webView
 
     private val pages = FrameLayout(act)
+
+    /** Deslizar hacia abajo desde arriba de la página recarga la pestaña activa (como en Chrome). */
+    private val swipe = androidx.swiperefreshlayout.widget.SwipeRefreshLayout(act)
     private val state = BrowserState()
 
     private fun active(): BrowserTab = session.tabs.first { it.id == session.activeId }
@@ -138,6 +141,7 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
         state.progress = t.progress
         state.loading = t.loading
         state.clearFocusTick++
+        swipe.isRefreshing = false
         syncUi()
     }
 
@@ -289,6 +293,7 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
     private fun changed(t: BrowserTab) {
         if (t.id != session.activeId) return
         if (!state.urlFocused) state.url = t.url
+        if (!t.loading) swipe.isRefreshing = false
         syncUi()
         publishTabs()
     }
@@ -327,7 +332,13 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
             (t.webView.parent as? ViewGroup)?.removeView(t.webView)
             pages.addView(t.webView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
-        view.addView(pages, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        swipe.addView(pages, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        // Solo se refresca si la página está arriba del todo (si no, el gesto es para desplazarla).
+        swipe.setOnChildScrollUpCallback { _, _ -> webView.scrollY > 0 }
+        swipe.setOnRefreshListener { webView.reload() }
+        swipe.setProgressBackgroundColorSchemeColor(host.surface())
+        swipe.setColorSchemeColors(host.accent())
+        view.addView(swipe, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
     }
 
     /** Guarda la última página para retomarla la próxima vez (solo http y https, de la pestaña que se ve). */
@@ -347,6 +358,7 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
 
     /** Al abrir el cajón: la primera vez carga la última página; las siguientes conserva las pestañas como estaban. */
     fun open() {
+        swipe.setColorSchemeColors(host.accent()) // del color de la cuenta activa
         val t = active()
         if (!t.started) startTab(t, host.lastUrl())
         syncUi()
