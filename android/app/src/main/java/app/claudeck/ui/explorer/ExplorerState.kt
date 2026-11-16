@@ -5,10 +5,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.claudeck.FileEntry
 import app.claudeck.SortMode
+import app.claudeck.ui.common.TabUi
 import java.io.File
 
 /** Lo que muestra el explorador. Lo escribe `FileExplorer` y lo lee la pantalla de Compose. */
 class ExplorerState(val storageRoot: File, val downloads: File, startDir: File) {
+    /** Pestañas abiertas (cada una con su carpeta) y la que se está viendo. */
+    var tabs by mutableStateOf<List<TabUi>>(emptyList())
+    var activeTab by mutableStateOf(0)
     var dir by mutableStateOf(startDir)
     var sort by mutableStateOf(SortMode.DATE)
     var entries by mutableStateOf<List<FileEntry>>(emptyList())

@@ -20,7 +20,6 @@ namespace AlternAIs.App;
 public sealed partial class MainWindow
 {
     private UIElement? _browserPanel;
-    private WebView2? _browserView;
 
     private void TogglePanel(SidePanel kind)
     {
@@ -355,6 +354,24 @@ public sealed partial class MainWindow
 
     // ---------------------------------------------------------------- Navegador
 
+    private sealed class BrowserTabW
+    {
+        public int Id;
+        public WebView2 Wv = new();
+        public string Title = "";
+        public bool Started;
+    }
+
+    private readonly List<BrowserTabW> _bTabs = new();
+    private int _bActive;
+    private int _bNextId = 1;
+    private readonly TabBar _bTabBar = new();
+    private TextBox? _bUrl;
+    private Grid? _bPages;
+    private Task<CoreWebView2Environment>? _bEnv;
+
+    private WebView2? ActiveBrowser() => _bTabs.FirstOrDefault(t => t.Id == _bActive)?.Wv;
+
     private UIElement EnsureBrowser(Palette pal)
     {
         if (_browserPanel is not null) return _browserPanel;
@@ -364,10 +381,10 @@ public sealed partial class MainWindow
         var reload = new Button { Content = AccentIcons.Create("", 14), Width = 40, Margin = new Thickness(4, 0, 0, 0) };
         var url = new TextBox { PlaceholderText = "Buscá o escribí una dirección", Margin = new Thickness(8, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
         var close = new Button { Content = AccentIcons.Create("", 14), Width = 40 };
-        var wv = new WebView2();
-        _browserView = wv;
+        _bUrl = url;
+        _bPages = new Grid();
 
-        var bar = new Grid { Margin = new Thickness(10, 10, 10, 4) };
+        var bar = new Grid { Margin = new Thickness(10, 6, 10, 4) };
         bar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         bar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         bar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -380,11 +397,11 @@ public sealed partial class MainWindow
         foreach (var (label, link) in BrowserRules.QuickLinks)
         {
             var target = link;
-            quick.Children.Add(Small(label, () => wv.CoreWebView2?.Navigate(target)));
+            quick.Children.Add(Small(label, () => ActiveBrowser()?.CoreWebView2?.Navigate(target)));
         }
         quick.Children.Add(Small("Abrir en el navegador del sistema", () =>
         {
-            var current = wv.CoreWebView2?.Source;
+            var current = ActiveBrowser()?.CoreWebView2?.Source;
             if (!BrowserRules.IsRememberable(current)) return;
             try { Process.Start(new ProcessStartInfo { FileName = current!, UseShellExecute = true }); } catch (Exception) { }
         }));
@@ -393,16 +410,19 @@ public sealed partial class MainWindow
         var grid = new Grid();
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        Grid.SetRow(bar, 0); Grid.SetRow(quickScroll, 1); Grid.SetRow(wv, 2);
-        grid.Children.Add(bar); grid.Children.Add(quickScroll); grid.Children.Add(wv);
+        Grid.SetRow(_bTabBar.View, 0); Grid.SetRow(bar, 1); Grid.SetRow(quickScroll, 2); Grid.SetRow(_bPages, 3);
+        grid.Children.Add(_bTabBar.View); grid.Children.Add(bar); grid.Children.Add(quickScroll); grid.Children.Add(_bPages);
 
-        back.Click += (_, _) => { if (wv.CanGoBack) wv.GoBack(); };
-        fwd.Click += (_, _) => { if (wv.CanGoForward) wv.GoForward(); };
-        reload.Click += (_, _) => wv.Reload();
+        back.Click += (_, _) => { if (ActiveBrowser() is { CanGoBack: true } w) w.GoBack(); };
+        fwd.Click += (_, _) => { if (ActiveBrowser() is { CanGoForward: true } w) w.GoForward(); };
+        reload.Click += (_, _) => ActiveBrowser()?.Reload();
         close.Click += (_, _) => TogglePanel(SidePanel.Browser);
         void Go()
         {
+            var wv = ActiveBrowser();
+            if (wv is null) return;
             switch (BrowserRules.Resolve(url.Text, Uri.EscapeDataString))
             {
                 case BrowserLoad load: wv.CoreWebView2?.Navigate(load.Url); wv.Focus(FocusState.Programmatic); break;
@@ -411,24 +431,82 @@ public sealed partial class MainWindow
         }
         url.KeyDown += (_, e) => { if (e.Key == Windows.System.VirtualKey.Enter) Go(); };
 
-        _ = InitBrowserAsync(wv, url);
+        var first = AddBrowserTab();
+        _ = InitBrowserTabAsync(first, _svc.State.Browser.LastUrl);
         _browserPanel = grid;
         return grid;
     }
 
-    /// <summary>El navegador tiene su propia sesión (carpeta «browser»), separada de todas las cuentas.</summary>
-    private async Task InitBrowserAsync(WebView2 wv, TextBox url)
+    // ---------------------------------------------------------------- Pestañas del navegador
+
+    private BrowserTabW AddBrowserTab()
     {
+        var t = new BrowserTabW { Id = _bNextId++ };
+        _bTabs.Add(t);
+        _bPages!.Children.Add(t.Wv);
+        SelectBrowserTab(t.Id);
+        return t;
+    }
+
+    private void SelectBrowserTab(int id)
+    {
+        if (_bTabs.All(t => t.Id != id)) return;
+        _bActive = id;
+        foreach (var t in _bTabs) t.Wv.Visibility = t.Id == id ? Visibility.Visible : Visibility.Collapsed;
+        if (_bUrl is not null && ActiveBrowser() is { } wv)
+            _bUrl.Text = wv.CoreWebView2?.Source ?? "";
+        RenderBrowserTabs();
+    }
+
+    private void CloseBrowserTab(int id)
+    {
+        if (_bTabs.Count <= 1) return;
+        var i = _bTabs.FindIndex(t => t.Id == id);
+        if (i < 0) return;
+        var tab = _bTabs[i];
+        _bTabs.RemoveAt(i);
+        _bPages?.Children.Remove(tab.Wv);
+        try { tab.Wv.Close(); } catch (Exception) { /* ya cerrada */ }
+        if (_bActive == id) SelectBrowserTab(_bTabs[Math.Min(i, _bTabs.Count - 1)].Id);
+        else RenderBrowserTabs();
+    }
+
+    private void NewBrowserTab()
+    {
+        var t = AddBrowserTab();
+        _ = InitBrowserTabAsync(t, null);
+    }
+
+    private void RenderBrowserTabs()
+    {
+        var pal = CurrentPalette;
+        _bTabBar.Render(
+            _bTabs.Select(t => (t.Id, string.IsNullOrWhiteSpace(t.Title) ? "Pestaña nueva" : t.Title)).ToList(),
+            _bActive, pal.OnSurface, AccentIcons.Current,
+            SelectBrowserTab, CloseBrowserTab, NewBrowserTab);
+    }
+
+    /// <summary>Todas las pestañas del navegador comparten una sesión propia (carpeta «browser»), separada de las cuentas.</summary>
+    private async Task InitBrowserTabAsync(BrowserTabW tab, string? lastUrl)
+    {
+        var wv = tab.Wv;
         try
         {
-            var env = await CoreWebView2Environment.CreateWithOptionsAsync(null, Path.Combine(AccountWebViews.ProfilesDir, "browser"), new CoreWebView2EnvironmentOptions());
+            _bEnv ??= CoreWebView2Environment.CreateWithOptionsAsync(null, Path.Combine(AccountWebViews.ProfilesDir, "browser"), new CoreWebView2EnvironmentOptions()).AsTask();
+            var env = await _bEnv;
             await wv.EnsureCoreWebView2Async(env);
             wv.CoreWebView2.SourceChanged += (_, _) =>
             {
                 var current = wv.CoreWebView2.Source;
-                if (url.FocusState == FocusState.Unfocused) url.Text = current;
+                if (tab.Id != _bActive) return;
+                if (_bUrl is not null && _bUrl.FocusState == FocusState.Unfocused) _bUrl.Text = current;
                 if (BrowserRules.IsRememberable(current) && current != _svc.State.Browser.LastUrl)
                     _svc.SetBrowser(_svc.State.Browser with { LastUrl = current.Length > 2000 ? current[..2000] : current });
+            };
+            wv.CoreWebView2.DocumentTitleChanged += (_, _) =>
+            {
+                tab.Title = wv.CoreWebView2.DocumentTitle ?? "";
+                RenderBrowserTabs();
             };
             wv.CoreWebView2.NewWindowRequested += (_, e) => { e.Handled = true; wv.CoreWebView2.Navigate(e.Uri); };
             await AccountWebViews.AttachShortcuts(wv.CoreWebView2, combo => RunShortcut(Shortcuts.FromCombo(combo)));
@@ -446,7 +524,8 @@ public sealed partial class MainWindow
                     e.Handled = false; // WebView2 muestra su diálogo para elegir dónde
                 }
             };
-            wv.CoreWebView2.Navigate(BrowserRules.StartUrl(_svc.State.Browser.LastUrl));
+            tab.Started = true;
+            wv.CoreWebView2.Navigate(BrowserRules.StartUrl(lastUrl));
         }
         catch (Exception ex)
         {

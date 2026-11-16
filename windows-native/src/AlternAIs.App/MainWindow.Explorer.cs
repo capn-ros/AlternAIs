@@ -39,6 +39,20 @@ public sealed partial class MainWindow
 
     // Dentro de un .zip/.rar: el archivo abierto, la carpeta interna ("" = raíz) y su listado completo (null = hay que leerlo).
     private string? _fxArchive;
+
+    // Pestañas: cada una recuerda su carpeta (o el .zip/.rar abierto y su subcarpeta). El portapapeles es común a todas.
+    private sealed class FxTab
+    {
+        public int Id;
+        public string Dir = "";
+        public string? Archive;
+        public string Inner = "";
+    }
+
+    private readonly List<FxTab> _fxTabs = new();
+    private int _fxActive;
+    private int _fxNextId = 1;
+    private readonly TabBar _fxTabBar = new();
     private string _fxInner = "";
     private IReadOnlyList<ArchiveItem>? _fxArchiveItems;
     private static readonly string FxTemp = Path.Combine(Path.GetTempPath(), "AlternAIs", "archive_tmp");
@@ -161,15 +175,84 @@ public sealed partial class MainWindow
         _fxList = list;
 
         var grid = new Grid();
-        for (var i = 0; i < 4; i++) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        if (_fxTabs.Count == 0)
+        {
+            _fxTabs.Add(new FxTab { Id = _fxNextId++, Dir = _fxDir });
+            _fxActive = _fxTabs[0].Id;
+        }
+        RenderFxTabs();
+
+        for (var i = 0; i < 5; i++) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        Grid.SetRow(head, 0); Grid.SetRow(placesScroll, 1); Grid.SetRow(bar, 2); Grid.SetRow(_fxStatus, 3); Grid.SetRow(list, 4);
-        grid.Children.Add(head); grid.Children.Add(placesScroll); grid.Children.Add(bar); grid.Children.Add(_fxStatus); grid.Children.Add(list);
+        Grid.SetRow(head, 0); Grid.SetRow(_fxTabBar.View, 1); Grid.SetRow(placesScroll, 2); Grid.SetRow(bar, 3); Grid.SetRow(_fxStatus, 4); Grid.SetRow(list, 5);
+        grid.Children.Add(head); grid.Children.Add(_fxTabBar.View); grid.Children.Add(placesScroll); grid.Children.Add(bar); grid.Children.Add(_fxStatus); grid.Children.Add(list);
         _fxPanel = grid;
         return grid;
     }
 
     // ---------------------------------------------------------------- Listado
+
+    // ---------------------------------------------------------------- Pestañas
+
+    private static string FxTitle(FxTab t) =>
+        t.Archive is not null
+            ? Path.GetFileName(t.Archive)
+            : Path.GetFileName(t.Dir.TrimEnd('\\', '/')) is { Length: > 0 } name ? name : t.Dir;
+
+    private void RenderFxTabs() =>
+        _fxTabBar.Render(
+            _fxTabs.Select(t => (t.Id, FxTitle(t))).ToList(),
+            _fxActive, CurrentPalette.OnSurface, AccentIcons.Current,
+            SelectFxTab, CloseFxTab, NewFxTab);
+
+    /// <summary>Guarda en la pestaña activa dónde se está mirando ahora (se llama en cada actualización del listado).</summary>
+    private void SyncFxTab()
+    {
+        var t = _fxTabs.FirstOrDefault(x => x.Id == _fxActive);
+        if (t is null) return;
+        t.Dir = _fxDir;
+        t.Archive = _fxArchive;
+        t.Inner = _fxInner;
+        RenderFxTabs();
+    }
+
+    private void LoadFxTab(FxTab t)
+    {
+        _fxActive = t.Id;
+        _fxDir = t.Dir;
+        _fxArchive = t.Archive;
+        _fxInner = t.Inner;
+        _fxArchiveItems = null;
+        RefreshExplorer();
+    }
+
+    private void SelectFxTab(int id)
+    {
+        if (id == _fxActive) return;
+        var t = _fxTabs.FirstOrDefault(x => x.Id == id);
+        if (t is null) return;
+        SyncFxTab();
+        LoadFxTab(t);
+    }
+
+    /// <summary>Pestaña nueva en la carpeta que se está viendo.</summary>
+    private void NewFxTab()
+    {
+        SyncFxTab();
+        var t = new FxTab { Id = _fxNextId++, Dir = _fxDir };
+        _fxTabs.Add(t);
+        LoadFxTab(t);
+    }
+
+    private void CloseFxTab(int id)
+    {
+        if (_fxTabs.Count <= 1) return;
+        var i = _fxTabs.FindIndex(x => x.Id == id);
+        if (i < 0) return;
+        _fxTabs.RemoveAt(i);
+        if (id == _fxActive) LoadFxTab(_fxTabs[Math.Min(i, _fxTabs.Count - 1)]);
+        else RenderFxTabs();
+    }
 
     private void ExplorerGo(string dir)
     {
@@ -212,6 +295,7 @@ public sealed partial class MainWindow
     private void RefreshExplorer()
     {
         if (_fxList is null) return;
+        SyncFxTab();
         if (_fxArchive is not null)
         {
             _ = RefreshArchiveAsync();

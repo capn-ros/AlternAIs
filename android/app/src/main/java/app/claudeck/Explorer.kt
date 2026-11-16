@@ -25,6 +25,7 @@ import app.claudeck.domain.usecase.BackAction
 import app.claudeck.domain.usecase.ExplorerRules
 import app.claudeck.domain.usecase.ItemAction
 import app.claudeck.domain.usecase.PickFilter
+import app.claudeck.ui.common.TabUi
 import app.claudeck.ui.explorer.ExplorerActions
 import app.claudeck.ui.explorer.ExplorerState
 import app.claudeck.ui.explorer.createExplorerView
@@ -66,6 +67,84 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
     /** Modo «subir archivo»: una página pidió adjuntar archivos y se eligen acá (varios a la vez). */
     private class PickRequest(val accept: List<String>, val onDone: (List<File>?) -> Unit)
     private var pick: PickRequest? = null
+
+    // ---------------------------------------------------------------- Pestañas
+
+    /** Lo que recuerda cada pestaña: dónde estaba (carpeta y, si había uno abierto, el .zip/.rar con su subcarpeta). */
+    private class Tab(val id: Int, var dir: File, var archive: File?, var inner: String, var writable: Boolean)
+
+    private val tabs = mutableListOf<Tab>()
+    private var activeTabId = 0
+    private var nextTabId = 1
+
+    init {
+        tabs += Tab(nextTabId++, state.dir, null, "", false)
+        activeTabId = tabs[0].id
+        publishTabs()
+    }
+
+    private fun titleOf(t: Tab): String = when {
+        t.archive != null -> t.archive!!.name
+        t.dir.canonicalPath == storageRoot.canonicalPath -> "Almacenamiento"
+        else -> t.dir.name.ifEmpty { "/" }
+    }
+
+    private fun publishTabs() {
+        state.tabs = tabs.map { TabUi(it.id, titleOf(it)) }
+        state.activeTab = activeTabId
+    }
+
+    /** Guarda en la pestaña activa dónde se está mirando ahora (se llama después de cada navegación). */
+    private fun syncActiveTab() {
+        val t = tabs.firstOrNull { it.id == activeTabId } ?: return
+        t.dir = state.dir
+        t.archive = state.archive
+        t.inner = state.inner
+        t.writable = state.archiveWritable
+        publishTabs()
+    }
+
+    private fun showTab(t: Tab) {
+        activeTabId = t.id
+        state.dir = t.dir
+        state.archive = t.archive
+        state.inner = t.inner
+        state.archiveWritable = t.writable
+        archiveItems = null
+        state.selected = emptySet()
+        state.entries = emptyList()
+        state.scrollTop++
+        publishTabs()
+        refresh()
+    }
+
+    fun selectTab(id: Int) {
+        if (id == activeTabId) return
+        val t = tabs.firstOrNull { it.id == id } ?: return
+        syncActiveTab()
+        showTab(t)
+    }
+
+    /** Pestaña nueva en la misma carpeta que se está viendo (si estaba dentro de un .zip, en la carpeta que lo contiene). */
+    fun newTab() {
+        syncActiveTab()
+        val t = Tab(nextTabId++, state.dir, null, "", false)
+        tabs += t
+        showTab(t)
+    }
+
+    fun closeTab(id: Int) {
+        if (tabs.size <= 1) return
+        val i = tabs.indexOfFirst { it.id == id }
+        if (i < 0) return
+        if (id != activeTabId) {
+            tabs.removeAt(i)
+            publishTabs()
+            return
+        }
+        tabs.removeAt(i)
+        showTab(tabs[minOf(i, tabs.size - 1)])
+    }
 
     /** Cambia el color del borde del cajón (sigue a la cuenta activa). */
     fun setBorder(color: Int) {
@@ -146,6 +225,11 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
     }
 
     fun refresh() {
+        refreshList()
+        syncActiveTab()
+    }
+
+    private fun refreshList() {
         state.hasAccess = hasAccess()
         if (!state.hasAccess) {
             state.entries = emptyList()
@@ -370,6 +454,9 @@ class FileExplorer(private val act: AppCompatActivity, private val host: Explore
     private val actions = object : ExplorerActions {
         override fun close() = host.close()
         override fun goUp() = this@FileExplorer.goUp()
+        override fun selectTab(id: Int) = this@FileExplorer.selectTab(id)
+        override fun newTab() = this@FileExplorer.newTab()
+        override fun closeTab(id: Int) = this@FileExplorer.closeTab(id)
         override fun openFolder(dir: File) = navigate(dir)
         override fun goDownloads() {
             if (downloads.exists()) { closeArchiveState(); navigate(downloads) }

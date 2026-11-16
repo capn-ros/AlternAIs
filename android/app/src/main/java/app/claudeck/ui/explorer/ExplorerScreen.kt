@@ -70,6 +70,7 @@ import app.claudeck.R
 import app.claudeck.domain.usecase.ArchiveRules
 import app.claudeck.domain.usecase.BarAction
 import app.claudeck.domain.usecase.ExplorerRules
+import app.claudeck.ui.common.TabStrip
 import app.claudeck.ui.theme.AlternTheme
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -105,6 +106,9 @@ interface ExplorerActions {
     fun openArchive(f: File)
     /** Miniatura de una imagen o video (puede tardar: se llama desde un hilo de fondo). */
     fun thumbnail(e: FileEntry, px: Int): Bitmap?
+    fun selectTab(id: Int)
+    fun newTab()
+    fun closeTab(id: Int)
 }
 
 private sealed interface Dlg {
@@ -197,6 +201,9 @@ fun ExplorerScreen(
                 modifier = Modifier.size(44.dp).clickable { actions.close() }.padding(10.dp)
             )
         }
+
+        // Pestañas: cada una con su carpeta; el portapapeles (copiar/mover) es común, así se pasa de una a otra.
+        TabStrip(state.tabs, state.activeTab, fg, accent, actions::selectTab, actions::closeTab, actions::newTab)
 
         // Barra fija: solo los lugares (Descargas y Almacenamiento) y, si hay selección, cuántos elementos.
         if (places.isNotEmpty() || (!state.picking && state.selected.isNotEmpty())) {

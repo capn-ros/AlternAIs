@@ -17,6 +17,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.webkit.ProfileStore
@@ -24,6 +25,7 @@ import androidx.webkit.WebViewCompat
 import app.claudeck.ui.browser.BrowserActions
 import app.claudeck.ui.browser.BrowserState
 import app.claudeck.ui.browser.createBrowserBar
+import app.claudeck.ui.common.TabUi
 
 /** Lo que el navegador interno le pide a la pantalla principal. */
 interface BrowserHost {
@@ -41,32 +43,64 @@ interface BrowserHost {
     fun downloadSettings()
 }
 
+/** Una pestaña del navegador: su página (WebView) y lo último que se supo de ella. */
+class BrowserTab(val id: Int, val webView: WebView) {
+    var title: String = ""
+    var url: String = ""
+    var loading = false
+    var progress = 100
+    var started = false
+}
+
+/** Todas las pestañas abiertas; sobrevive al rearmado del cajón (cambio de tema) sin perder ninguna página. */
+class BrowserSession {
+    val tabs = mutableListOf<BrowserTab>()
+    var activeId = 0
+    var nextId = 1
+
+    val activeWebView: WebView? get() = tabs.firstOrNull { it.id == activeId }?.webView ?: tabs.firstOrNull()?.webView
+}
+
 /**
  * Navegador web interno, universal para toda la app (no pertenece a ninguna cuenta): un cajón casi a pantalla
- * completa con atrás, adelante, recargar, barra de direcciones y accesos rápidos. Tiene su propia sesión
- * (perfil «browser»), así que si entrás a GitHub u otro sitio se queda iniciada.
+ * completa con pestañas, atrás, adelante, recargar, barra de direcciones y accesos rápidos. Tiene su propia sesión
+ * (perfil «browser»), compartida por todas las pestañas, así que si entrás a GitHub u otro sitio se queda iniciada.
  */
-class BrowserPanel(private val act: AppCompatActivity, private val host: BrowserHost, existing: WebView?) {
+class BrowserPanel(private val act: AppCompatActivity, private val host: BrowserHost, existing: BrowserSession?) {
     val view: LinearLayout = LinearLayout(act)
-    val webView: WebView = existing ?: createWebView()
+    val session: BrowserSession = existing ?: BrowserSession()
 
+    /** La página de la pestaña activa. */
+    val webView: WebView get() = active().webView
+
+    private val pages = FrameLayout(act)
     private val state = BrowserState()
-    private var loading = false
-    private var started = existing != null
+
+    private fun active(): BrowserTab = session.tabs.first { it.id == session.activeId }
+    private fun tabOf(wv: WebView?): BrowserTab? = session.tabs.firstOrNull { it.webView === wv }
 
     private val actions = object : BrowserActions {
         override fun back() { if (webView.canGoBack()) webView.goBack() }
         override fun forward() { if (webView.canGoForward()) webView.goForward() }
-        override fun reloadOrStop() { if (loading) webView.stopLoading() else webView.reload() }
+        override fun reloadOrStop() { if (active().loading) webView.stopLoading() else webView.reload() }
         override fun go(raw: String) = this@BrowserPanel.go(raw)
         override fun close() = host.close()
         override fun downloadSettings() = host.downloadSettings()
         override fun openExternal() = this@BrowserPanel.openExternal()
+        override fun selectTab(id: Int) = this@BrowserPanel.selectTab(id)
+        override fun newTab() { this@BrowserPanel.newTab() }
+        override fun closeTab(id: Int) = this@BrowserPanel.closeTab(id)
     }
 
     init {
+        if (session.tabs.isEmpty()) {
+            val t = createTab()
+            session.activeId = t.id
+        }
+        for (t in session.tabs) wire(t) // si el cajón se rearmó, los callbacks tienen que apuntar a este panel
         build()
-        if (existing != null) syncUi()
+        publishTabs()
+        applyActive()
     }
 
     /** Cambia el color del borde del cajón (sigue a la cuenta activa). */
@@ -75,6 +109,86 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
     }
 
     private fun dp(v: Int): Int = (v * act.resources.displayMetrics.density).toInt()
+
+    // ---------------------------------------------------------------- Pestañas
+
+    private fun createTab(): BrowserTab {
+        val t = BrowserTab(session.nextId++, createWebView())
+        session.tabs += t
+        wire(t)
+        return t
+    }
+
+    private fun tabLabel(t: BrowserTab): String = when {
+        t.title.isNotBlank() -> t.title
+        t.url.isNotBlank() -> Uri.parse(t.url).host?.removePrefix("www.") ?: t.url
+        else -> "Pestaña nueva"
+    }
+
+    private fun publishTabs() {
+        state.tabs = session.tabs.map { TabUi(it.id, tabLabel(it)) }
+        state.activeTab = session.activeId
+    }
+
+    /** Pasa a la barra lo de la pestaña activa y deja visible solo su página. */
+    private fun applyActive() {
+        val t = active()
+        for (o in session.tabs) o.webView.visibility = if (o === t) View.VISIBLE else View.GONE
+        state.url = t.url
+        state.progress = t.progress
+        state.loading = t.loading
+        state.clearFocusTick++
+        syncUi()
+    }
+
+    private fun selectTab(id: Int) {
+        if (id == session.activeId || session.tabs.none { it.id == id }) return
+        session.activeId = id
+        publishTabs()
+        applyActive()
+        if (!active().started) startTab(active(), null)
+    }
+
+    /** Abre una pestaña nueva (con la página de inicio) y pasa a ella. */
+    fun newTab(): BrowserTab {
+        val t = createTab()
+        pages.addView(t.webView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        session.activeId = t.id
+        publishTabs()
+        applyActive()
+        startTab(t, null)
+        return t
+    }
+
+    private fun closeTab(id: Int) {
+        if (session.tabs.size <= 1) return
+        val i = session.tabs.indexOfFirst { it.id == id }
+        if (i < 0) return
+        val t = session.tabs.removeAt(i)
+        if (session.activeId == id) session.activeId = session.tabs[minOf(i, session.tabs.size - 1)].id
+        pages.removeView(t.webView)
+        t.webView.stopLoading()
+        t.webView.destroy()
+        publishTabs()
+        applyActive()
+        if (!active().started) startTab(active(), null)
+    }
+
+    private fun startTab(t: BrowserTab, lastUrl: String?) {
+        t.started = true
+        navigate(t, BrowserRules.startUrl(lastUrl))
+    }
+
+    fun resumeAll() { session.tabs.forEach { it.webView.onResume() } }
+    fun pauseAll() { session.tabs.forEach { it.webView.onPause() } }
+
+    fun destroyAll() {
+        for (t in session.tabs) {
+            (t.webView.parent as? ViewGroup)?.removeView(t.webView)
+            t.webView.destroy()
+        }
+        session.tabs.clear()
+    }
 
     // ---------------------------------------------------------------- WebView
 
@@ -107,6 +221,12 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
             }
         } catch (_: Exception) {
         }
+        return wv
+    }
+
+    /** Conecta los callbacks de la página de la pestaña [t] con este panel. */
+    private fun wire(t: BrowserTab) {
+        val wv = t.webView
         wv.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val uri = request?.url ?: return false
@@ -124,27 +244,33 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
             }
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                loading = true
-                if (!state.urlFocused) state.url = url ?: ""
-                syncUi()
+                t.loading = true
+                t.url = url ?: ""
+                changed(t)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
-                loading = false
-                remember(url)
-                if (!state.urlFocused) state.url = url ?: ""
-                syncUi()
+                t.loading = false
+                t.url = url ?: ""
+                remember(t, url)
+                changed(t)
             }
 
             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
-                remember(url)
-                if (!state.urlFocused) state.url = url ?: ""
-                syncUi()
+                t.url = url ?: ""
+                remember(t, url)
+                changed(t)
             }
         }
         wv.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                state.progress = newProgress
+                t.progress = newProgress
+                if (t.id == session.activeId) state.progress = newProgress
+            }
+
+            override fun onReceivedTitle(view: WebView?, title: String?) {
+                t.title = title ?: ""
+                publishTabs()
             }
 
             override fun onShowFileChooser(
@@ -157,13 +283,20 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
         wv.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
             host.download(wv, url, userAgent, contentDisposition, mimeType)
         }
-        return wv
     }
 
-    /** Para rearmar el cajón (cambio de tema) sin perder la página abierta. */
-    fun detachWebView(): WebView {
-        (webView.parent as? ViewGroup)?.removeView(webView)
-        return webView
+    /** Algo cambió en la página de [t]: si es la que se está viendo, se actualiza la barra. */
+    private fun changed(t: BrowserTab) {
+        if (t.id != session.activeId) return
+        if (!state.urlFocused) state.url = t.url
+        syncUi()
+        publishTabs()
+    }
+
+    /** Para rearmar el cajón (cambio de tema) sin perder las páginas abiertas. */
+    fun detachSession(): BrowserSession {
+        for (t in session.tabs) (t.webView.parent as? ViewGroup)?.removeView(t.webView)
+        return session
     }
 
     // ---------------------------------------------------------------- Interfaz
@@ -183,36 +316,39 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
         view.clipToOutline = true
         view.setPadding(dp(3), dp(10), dp(3), 0) // deja a la vista el borde del cajón a los costados
 
-        // Barra (Compose): atrás · adelante · recargar · dirección · cerrar, progreso y accesos rápidos.
+        // Barra (Compose): pestañas · atrás · adelante · recargar · dirección · cerrar, progreso y accesos rápidos.
         view.addView(
             createBrowserBar(act, state, actions, host.surface(), host.onSurface(), host.accent()),
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         )
 
-        (webView.parent as? ViewGroup)?.removeView(webView)
-        view.addView(webView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        // Todas las páginas conviven en el mismo marco; solo la de la pestaña activa se ve.
+        for (t in session.tabs) {
+            (t.webView.parent as? ViewGroup)?.removeView(t.webView)
+            pages.addView(t.webView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
+        view.addView(pages, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
     }
 
-    /** Guarda la última página para retomarla la próxima vez (solo http y https). */
-    private fun remember(url: String?) {
-        if (url != null && BrowserRules.isRememberable(url)) host.saveLastUrl(url)
+    /** Guarda la última página para retomarla la próxima vez (solo http y https, de la pestaña que se ve). */
+    private fun remember(t: BrowserTab, url: String?) {
+        if (t.id == session.activeId && url != null && BrowserRules.isRememberable(url)) host.saveLastUrl(url)
     }
 
     /** Pasa a la barra el estado del historial y si está cargando (cambia recargar por «detener»). */
     private fun syncUi() {
-        state.canGoBack = webView.canGoBack()
-        state.canGoForward = webView.canGoForward()
-        state.loading = loading
+        val t = active()
+        state.canGoBack = t.webView.canGoBack()
+        state.canGoForward = t.webView.canGoForward()
+        state.loading = t.loading
     }
 
     // ---------------------------------------------------------------- Navegación
 
-    /** Al abrir el cajón: la primera vez carga GitHub; las siguientes conserva la página. */
+    /** Al abrir el cajón: la primera vez carga la última página; las siguientes conserva las pestañas como estaban. */
     fun open() {
-        if (!started) {
-            started = true
-            go(BrowserRules.startUrl(host.lastUrl()))
-        }
+        val t = active()
+        if (!t.started) startTab(t, host.lastUrl())
         syncUi()
     }
 
@@ -239,9 +375,16 @@ class BrowserPanel(private val act: AppCompatActivity, private val host: Browser
             }
             is BrowserInput.Load -> input.url
         }
-        state.clearFocusTick++
-        webView.requestFocus()
-        webView.loadUrl(url)
+        navigate(active(), url)
+    }
+
+    private fun navigate(t: BrowserTab, url: String) {
+        t.started = true
+        if (t.id == session.activeId) {
+            state.clearFocusTick++
+            t.webView.requestFocus()
+        }
+        t.webView.loadUrl(url)
     }
 
     private fun openExternal() {

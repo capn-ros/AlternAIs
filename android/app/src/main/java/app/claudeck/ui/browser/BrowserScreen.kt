@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.claudeck.R
 import app.claudeck.domain.usecase.BrowserRules
+import app.claudeck.ui.common.TabStrip
 import app.claudeck.ui.theme.AlternTheme
 
 /** Lo que la barra le pide al navegador. */
@@ -58,6 +59,9 @@ interface BrowserActions {
     fun close()
     fun downloadSettings()
     fun openExternal()
+    fun selectTab(id: Int)
+    fun newTab()
+    fun closeTab(id: Int)
 }
 
 @Composable
@@ -79,6 +83,7 @@ fun BrowserBar(state: BrowserState, fg: Color, accent: Color, actions: BrowserAc
     }
 
     Column(Modifier.fillMaxWidth()) {
+        TabStrip(state.tabs, state.activeTab, fg, accent, actions::selectTab, actions::closeTab, actions::newTab)
         Row(
             Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically
