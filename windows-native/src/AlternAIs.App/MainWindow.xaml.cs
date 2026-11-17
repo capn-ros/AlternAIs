@@ -490,8 +490,11 @@ public sealed partial class MainWindow : Window
             if (child is Button { Content: FontIcon icon }) icon.Foreground = Palette.Brush(accent);
         }
 
+        // La IA actual va FIJA (_railTop está fuera del desplazamiento); solo las cuentas se desplazan.
+        _railTop.Children.Clear();
+        _railTop.Children.Add(AiSwitchButton(pal, accent));
+
         _railAccounts.Children.Clear();
-        _railAccounts.Children.Add(AiSwitchButton(pal, accent)); // la IA actual, primera: un clic para cambiar
         foreach (var a in _svc.Accounts)
             _railAccounts.Children.Add(AccountItem(a, a.Id == _svc.SelectedId, pal, now, vertical));
 

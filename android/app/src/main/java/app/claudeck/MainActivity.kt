@@ -227,6 +227,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var infoRow: LinearLayout
     private lateinit var chipGroup: LinearLayout
     private lateinit var chipScroll: HorizontalScrollView
+    private lateinit var chipsRow: LinearLayout
     private lateinit var progress: LinearProgressIndicator
     private lateinit var emptyView: View
     private lateinit var emptyIcon: View
@@ -1268,7 +1269,7 @@ class MainActivity : AppCompatActivity() {
             TransitionManager.beginDelayedTransition(dock, AutoTransition().setDuration(220))
         }
         // Plegada: punto de la cuenta (izquierda) y flecha (derecha). Desplegada: nombre, ajustes, círculos y botón +.
-        chipScroll.visibility = if (collapsed) View.GONE else View.VISIBLE
+        chipsRow.visibility = if (collapsed) View.GONE else View.VISIBLE
         // Plegada: la barra de tiempo ocupa el lugar del texto (punto a la izquierda, flecha a la derecha)
         info.visibility = if (collapsed) View.GONE else View.VISIBLE
         timeBar.visibility = if (collapsed) View.VISIBLE else View.GONE
@@ -1703,7 +1704,19 @@ class MainActivity : AppCompatActivity() {
         group.gravity = Gravity.CENTER
         group.setPadding(dp(10), dp(4), dp(10), dp(12))
         scroll.addView(group, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        d.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        // La IA actual va FIJA a la izquierda; solo los círculos de cuentas se desplazan.
+        val pill = AiPill(this)
+        pill.setOnClickListener { pop(pill); showServiceMenu(pill) }
+        val chipsRow = LinearLayout(this)
+        chipsRow.orientation = LinearLayout.HORIZONTAL
+        chipsRow.gravity = Gravity.CENTER_VERTICAL
+        chipsRow.addView(pill, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = dp(12)
+            marginEnd = dp(2)
+            bottomMargin = dp(8) // alinea su centro con el de los círculos (que tienen aire abajo)
+        })
+        chipsRow.addView(scroll, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        d.addView(chipsRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         parent.addView(d, index, lp)
 
@@ -1719,6 +1732,8 @@ class MainActivity : AppCompatActivity() {
         btnToggleDock = toggle
         chipScroll = scroll
         chipGroup = group
+        this.chipsRow = chipsRow
+        aiPill = pill
     }
 
     /** Oculta el panel de cuentas mientras el teclado está abierto, para tener más lugar al escribir. */
@@ -1808,16 +1823,7 @@ class MainActivity : AppCompatActivity() {
     private fun rebuildChips(animateIn: Boolean = false) {
         chips.clear()
         chipGroup.removeAllViews()
-        // Primero, la IA actual: un toque abre la lista para cambiar.
-        val pill = AiPill(this)
-        pill.setOnClickListener { pop(pill); showServiceMenu(pill) }
-        aiPill = pill
-        bindAiPill()
-        chipGroup.addView(pill, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            marginStart = dp(10)
-            marginEnd = dp(6)
-        })
+        bindAiPill() // la píldora de la IA es fija (está fuera del scroll); acá solo se repinta
         val gap = LinearLayout.LayoutParams(circleSize, circleSize + circleExtra * 2).apply {
             marginStart = dp(6)
             marginEnd = dp(6)
