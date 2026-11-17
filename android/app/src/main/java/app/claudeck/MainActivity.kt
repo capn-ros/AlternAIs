@@ -165,10 +165,9 @@ class MainActivity : AppCompatActivity() {
 
         /** Nombre del objeto JS que usa la página para pasarnos archivos `blob:` a guardar. */
         private const val BRIDGE = "claudeckDl"
-        private val BRIDGE_ORIGINS = setOf(
-            "https://claude.ai", "https://*.claude.ai",
-            "https://claude.com", "https://*.claude.com"
-        )
+        private val BRIDGE_ORIGINS: Set<String> =
+            (Service.values().flatMap { s -> s.hosts } + listOf("claude.com"))
+                .flatMap { h -> listOf("https://$h", "https://*.$h") }.toSet()
 
         /** Una sola paleta, la del dominio (`AccountPalette`): la usan el formulario, el botón + y la importación. */
         private val PALETTE = AccountPalette.COLORS
@@ -436,6 +435,8 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         store = AccountStore(this)
+        // Claude es la IA principal: en un arranque en frío siempre se abre ahí (las otras se eligen desde Ajustes).
+        if (savedInstanceState == null) store.service = Service.CLAUDE
         applySystemBars()
         buildDock()
 
@@ -1407,6 +1408,7 @@ class MainActivity : AppCompatActivity() {
         // El contenido del cajón (logo, interruptor de burbuja y filas) es Compose.
         val actions = object : SettingsActions {
             override fun toggleTheme() = this@MainActivity.toggleTheme()
+            override fun switchService(service: AiService) = this@MainActivity.switchService(Service.fromKey(service.key))
             override fun toggleBubble(turnOn: Boolean) {
                 setDrawerOpen(false)
                 setBubbleEnabled(turnOn)
@@ -1450,6 +1452,43 @@ class MainActivity : AppCompatActivity() {
             )
         )
         drawer = d
+    }
+
+    /**
+     * Pasa a otra IA (Claude es la principal). Cada servicio tiene sus cuentas y su cuenta activa; las páginas de
+     * la otra mitad quedan ocultas y vivas (ids y perfiles distintos), así que volver es instantáneo.
+     */
+    private fun switchService(target: Service) {
+        if (target == store.service) return
+        setDrawerOpen(false)
+        webViews.values.forEach { wv ->
+            rememberPage(wv, wv.url)
+            wv.animate().cancel()
+            wv.visibility = View.GONE
+        }
+        loadingView?.let { (it.parent as? ViewGroup)?.removeView(it); it.stopLoop() }
+        loadingView = null
+        loadingShownAt = 0L
+        store.service = target
+        accounts.clear()
+        accounts.addAll(store.load())
+        currentId = null
+        previousId = null
+        applyServiceTheme()
+        rebuildChips(animateIn = true)
+        updateEmptyState()
+        val saved = store.selectedId
+        val first = accounts.firstOrNull { it.id == saved } ?: accounts.firstOrNull()
+        if (first != null) {
+            select(first.id)
+        } else {
+            updateInfo()
+            retintIcons()
+            updateErrorView()
+            updateLoadingOverlay()
+        }
+        BubbleService.refresh()
+        scheduleAutoHide()
     }
 
     /**
@@ -1917,6 +1956,8 @@ class MainActivity : AppCompatActivity() {
             domStorageEnabled = true
             allowFileAccess = false
             mediaPlaybackRequiresUserGesture = true
+            // Las otras IAs (sobre todo con «Continuar con Google») rechazan un WebView incrustado: sin «; wv».
+            if (store.service != Service.CLAUDE) userAgentString = userAgentString.replace("; wv", "")
         }
         try {
             if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {

@@ -161,7 +161,14 @@ public sealed class AccountsService
     public void SetTheme(AiService service, string theme)
     {
         var t = theme == "light" ? "light" : "dark";
-        Commit(State with { ClaudeTheme = t });
+        Commit(State.WithTheme(service, t));
+    }
+
+    /// <summary>Pasa a otra IA (Claude es la principal). Es solo de esta sesión: no se guarda, la app abre en Claude.</summary>
+    public void SetService(AiService service)
+    {
+        if (State.Active == service) return;
+        Commit(State with { Active = service });
     }
 
     public void MarkTutorialShown() => Commit(State with { TutorialShown = true });

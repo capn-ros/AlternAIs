@@ -77,10 +77,10 @@ public sealed partial class MainWindow
             Content = Logo.Create(40), Padding = new Thickness(0), BorderThickness = new Thickness(0),
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), CornerRadius = new CornerRadius(10)
         };
-        ToolTipService.SetToolTip(logo, "Cambiar a tema " + (s.ClaudeTheme == "dark" ? "claro" : "oscuro"));
+        ToolTipService.SetToolTip(logo, "Cambiar a tema " + (s.Theme(service) == "dark" ? "claro" : "oscuro"));
         logo.Click += (_, _) =>
         {
-            var current = _svc.State.ClaudeTheme;
+            var current = _svc.State.Theme(service);
             _svc.SetTheme(service, current == "dark" ? "light" : "dark");
             RenderPanel();
         };
@@ -92,10 +92,22 @@ public sealed partial class MainWindow
         header.Children.Add(titles);
         stack.Children.Add(header);
 
+        // IA: Claude es la principal; las demás se eligen acá y cada una tiene sus cuentas.
+        var picker = new ComboBox { Header = "IA", ItemsSource = Enum.GetValues<AiService>().Select(x => x.Label()).ToList(), SelectedIndex = (int)service };
+        picker.SelectionChanged += (_, _) =>
+        {
+            if (picker.SelectedIndex < 0) return;
+            var chosen = Enum.GetValues<AiService>()[picker.SelectedIndex];
+            if (chosen == _svc.State.Service) return;
+            _svc.SetService(chosen);
+            RenderPanel();
+        };
+        stack.Children.Add(picker);
+
         var dark = new ToggleSwitch
         {
             Header = "Tema de " + service.Label(), OnContent = "Oscuro", OffContent = "Claro",
-            IsOn = s.ClaudeTheme == "dark"
+            IsOn = s.Theme(service) == "dark"
         };
         dark.Toggled += (_, _) => _svc.SetTheme(service, dark.IsOn ? "dark" : "light");
         stack.Children.Add(dark);

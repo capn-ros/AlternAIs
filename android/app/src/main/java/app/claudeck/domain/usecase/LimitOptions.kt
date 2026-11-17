@@ -19,8 +19,9 @@ private const val HOUR_MS = 3_600_000L
 
 /** Opciones según la cuota de cada IA. Claude: ventana de 5 h y tope semanal. */
 object LimitOptions {
+    /** Claude: ventana de 5 h y tope semanal. Las demás IAs tienen cuotas parecidas (horas, día o semana): mismas opciones. */
     fun forService(service: AiService): List<LimitOption> = when (service) {
-        AiService.CLAUDE -> listOf(
+        else -> listOf(
             LimitOption.After("Dentro de 5 horas", 5),
             LimitOption.After("Dentro de 24 horas", 24),
             LimitOption.After("Dentro de 7 días", 7 * 24),

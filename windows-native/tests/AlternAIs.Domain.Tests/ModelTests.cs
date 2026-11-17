@@ -69,7 +69,11 @@ public class AiServiceTests
     {
         Assert.Equal(AiService.Claude, AiServices.FromKey(null));
         Assert.Equal(AiService.Claude, AiServices.FromKey("otro"));
-        Assert.Equal(AiService.Claude, AiServices.FromKey("replit"));
+        Assert.Equal(AiService.Replit, AiServices.FromKey("replit"));
+        Assert.Equal(AiService.ChatGpt, AiServices.FromKey("chatgpt"));
+        Assert.Equal(AiService.Gemini, AiServices.FromKey("gemini"));
+        Assert.Equal(AiService.Grok, AiServices.FromKey("grok"));
+        Assert.Equal(AiService.DeepSeek, AiServices.FromKey("deepseek"));
     }
 
     [Fact]
@@ -79,6 +83,9 @@ public class AiServiceTests
         Assert.True(AiService.Claude.OwnsHost("api.claude.ai"));
         Assert.False(AiService.Claude.OwnsHost("fakeclaude.ai"));
         Assert.False(AiService.Claude.OwnsHost("replit.com"));
+        Assert.True(AiService.Replit.OwnsHost("replit.com"));
+        Assert.True(AiService.Gemini.OwnsHost("gemini.google.com"));
+        Assert.False(AiService.Gemini.OwnsHost("mail.google.com"));
     }
 
     [Fact]

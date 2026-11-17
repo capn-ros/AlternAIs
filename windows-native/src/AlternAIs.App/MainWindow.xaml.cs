@@ -75,7 +75,7 @@ public sealed partial class MainWindow : Window
         _rendered = _svc.State;
         _views = new AccountWebViews(_webHost);
         _sender = new AutoSender(_views);
-        AccountWebViews.PurgeOrphans(_svc.State.Claude.Accounts.Select(a => a.ProfileName));
+        AccountWebViews.PurgeOrphans(Enum.GetValues<AiService>().SelectMany(sv => _svc.State.Bucket(sv).Accounts).Select(a => a.ProfileName));
         _views.UrlChanged += (id, url) => _svc.RememberUrl(id, url);
         _views.ShortcutPressed += combo => RunShortcut(Shortcuts.FromCombo(combo));
         _views.LoadingChanged += UpdateLoading;
@@ -107,7 +107,7 @@ public sealed partial class MainWindow : Window
     // ---------------------------------------------------------------- Estado
 
     private Palette CurrentPalette =>
-        Palette.For(_svc.State.ClaudeTheme);
+        Palette.For(_svc.State.Theme(_svc.State.Service));
 
     /// <summary>Color de la cuenta activa (el «chrome» de la ventana lo usa, como en Android); sin cuentas, el coral.</summary>
     private Windows.UI.Color Accent => _svc.Selected is { } a ? Palette.FromArgb(a.Color) : Brand;
@@ -117,8 +117,8 @@ public sealed partial class MainWindow : Window
         var prev = _rendered;
         _rendered = s;
         var layoutChanged = prev.Settings.RailPos != s.Settings.RailPos;
-        var themeChanged = prev.ClaudeTheme != s.ClaudeTheme;
-        var accountsChanged = !ReferenceEquals(prev.Claude, s.Claude);
+        var themeChanged = prev.Theme(prev.Service) != s.Theme(s.Service);
+        var accountsChanged = prev.Service != s.Service || !ReferenceEquals(prev.Current, s.Current);
         if (layoutChanged) BuildLayout();
         if (themeChanged || layoutChanged || accountsChanged) ApplyTheme();
         if (accountsChanged || themeChanged || layoutChanged) RefreshRail();

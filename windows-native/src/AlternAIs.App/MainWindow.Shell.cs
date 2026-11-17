@@ -117,10 +117,11 @@ public sealed partial class MainWindow
         Microsoft.UI.Xaml.Application.Current.Exit();
     }
 
-    /// <summary>Abre una cuenta de cualquiera de los dos servicios.</summary>
+    /// <summary>Abre una cuenta de cualquiera de las IAs (pasa a la suya si hace falta).</summary>
     private void OpenAccount(string id)
     {
-        if (_svc.ServiceOf(id) is null) return;
+        if (_svc.ServiceOf(id) is not { } service) return;
+        _svc.SetService(service); // la cuenta puede ser de otra IA que la que se está viendo
         _svc.Select(id);
     }
 

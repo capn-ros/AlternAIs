@@ -33,7 +33,17 @@ public static partial class StateJson
 
         var claude = Bucket(root["accounts"], root["selectedId"], AiService.Claude);
 
+        // Las demás IAs van como en el formato de Electron: «"replit": {"accounts": [...], "selectedId": "..."}» y «themes».
+        var others = new Dictionary<AiService, ServiceBucket>();
+        var otherThemes = new Dictionary<AiService, string>();
         var themes = root["themes"] as JsonObject;
+        foreach (var svc in Enum.GetValues<AiService>().Where(x => x != AiService.Claude))
+        {
+            var o = root[svc.Key()] as JsonObject;
+            if (o is not null) others[svc] = Bucket(o["accounts"], o["selectedId"], svc).Normalized();
+            var th = Str(themes?[svc.Key()]);
+            if (th is "light" or "dark") otherThemes[svc] = th;
+        }
         var settings = root["settings"] as JsonObject;
         var browser = root["browser"] as JsonObject;
         var snippets = root["snippets"] is JsonArray arr
@@ -52,18 +62,30 @@ public static partial class StateJson
             new BrowserSettings(
                 CleanBrowserUrl(Str(browser?["lastUrl"])),
                 (Str(browser?["dlMode"]) is "default" or "ask" or "folder") ? Str(browser?["dlMode"])! : "default",
-                CleanDir(Str(browser?["dlDir"]))));
+                CleanDir(Str(browser?["dlDir"]))),
+            AiService.Claude,
+            others,
+            otherThemes);
     }
 
     /// <summary>El estado como texto JSON, en el formato de siempre.</summary>
     public static string Serialize(AppState s)
     {
+        var themes = new JsonObject { ["claude"] = s.ClaudeTheme };
+        var others = new JsonObject();
+        foreach (var svc in Enum.GetValues<AiService>().Where(x => x != AiService.Claude))
+        {
+            var b = s.Bucket(svc);
+            if (b.Accounts.Count > 0 || b.SelectedId is not null)
+                others[svc.Key()] = new JsonObject { ["accounts"] = AccountsArray(b.Accounts), ["selectedId"] = b.SelectedId };
+            if (s.OtherThemes is not null && s.OtherThemes.TryGetValue(svc, out var th)) themes[svc.Key()] = th;
+        }
         var obj = new JsonObject
         {
             ["accounts"] = AccountsArray(s.Claude.Accounts),
             ["selectedId"] = s.Claude.SelectedId,
-            ["service"] = "claude",
-            ["themes"] = new JsonObject { ["claude"] = s.ClaudeTheme },
+            ["service"] = "claude", // la app siempre abre en Claude
+            ["themes"] = themes,
             ["tutorialShown"] = s.TutorialShown,
             ["snippets"] = new JsonArray(s.Snippets.Select(x => (JsonNode?)JsonValue.Create(x)).ToArray()),
             ["settings"] = new JsonObject
@@ -79,6 +101,7 @@ public static partial class StateJson
                 ["dlDir"] = s.Browser.DlDir
             }
         };
+        foreach (var kv in others) obj[kv.Key] = kv.Value;
         return obj.ToJsonString(Pretty);
     }
 

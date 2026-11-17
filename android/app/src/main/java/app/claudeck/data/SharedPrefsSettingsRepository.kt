@@ -16,7 +16,7 @@ class SharedPrefsSettingsRepository(private val prefs: SharedPreferences) : Sett
         val service = AiService.fromKey(prefs.getString("service", null))
         return AppSettings(
             service = service,
-            dark = prefs.getBoolean("dark_${service.key}", service == AiService.CLAUDE),
+            dark = prefs.getBoolean("dark_${service.key}", service.defaultDark),
             bubbleEnabled = prefs.getBoolean("bubble_enabled", false)
         )
     }

@@ -42,6 +42,19 @@ public class StateJsonTests
     }
 
     [Fact]
+    public void Lee_las_cuentas_y_el_tema_de_las_otras_IAs_y_siempre_abre_en_Claude()
+    {
+        var s = StateJson.Parse(Electron);
+        Assert.Equal(AiService.Claude, s.Service); // «service»: «replit» en el archivo no cuenta
+        var r = Assert.Single(s.Bucket(AiService.Replit).Accounts);
+        Assert.Equal("ffffffffffff", r.Id);
+        Assert.Equal("ffffffffffff", s.Bucket(AiService.Replit).SelectedId); // «nada» no existe: queda la primera
+        Assert.Equal("dark", s.Theme(AiService.Replit));
+        Assert.Empty(s.Bucket(AiService.Gemini).Accounts);
+        Assert.Equal("dark", s.Theme(AiService.Gemini));
+    }
+
+    [Fact]
     public void Descarta_ids_invalidos_y_limpia_nombre_color_y_url()
     {
         var b = StateJson.Parse(Electron).Claude.Accounts[1];
@@ -125,7 +138,8 @@ public class StateJsonTests
         foreach (var key in new[] { "\"accounts\"", "\"selectedId\"", "\"service\"", "\"themes\"", "\"tutorialShown\"", "\"snippets\"", "\"settings\"", "\"browser\"", "\"limitUntil\"", "\"autoReply\"", "\"railPos\"", "\"dlMode\"" })
             Assert.Contains(key, json);
         Assert.Contains("\"color\": \"#4FB0C6\"", json);
-        Assert.DoesNotContain("replit", json);
+        Assert.DoesNotContain("\"others\"", json);
+        Assert.Contains("\"replit\"", json); // las cuentas de las otras IAs se conservan, como en Electron
     }
 }
 

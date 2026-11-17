@@ -5,6 +5,10 @@ import android.widget.ImageView
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -42,6 +46,8 @@ import app.claudeck.ui.theme.AlternTheme
 
 /** Acciones que la pantalla le pide a quien la aloja (hoy MainActivity; después, un ViewModel de navegación). */
 interface SettingsActions {
+    /** Pasa a otra IA (Claude es la principal); cada una tiene sus cuentas. */
+    fun switchService(service: AiService)
     fun toggleTheme()
     fun toggleBubble(turnOn: Boolean)
     fun reloadCurrent()
@@ -76,6 +82,11 @@ fun SettingsScreen(state: SettingsUiState, actions: SettingsActions) {
                 .semantics { contentDescription = "Cambiar entre tema oscuro y claro" }
                 .clickable(role = Role.Button) { actions.toggleTheme() })
         }
+        Text(
+            "IA", color = accent, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
+        )
+        ServicePicker(state.service, fg, accent, actions::switchService)
         Text(
             "Ajustes", color = accent, fontSize = 13.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 2.dp)
@@ -118,4 +129,26 @@ private fun AppLogo(modifier: Modifier) {
         factory = { ctx -> ImageView(ctx).apply { setImageResource(R.mipmap.ic_launcher) } },
         modifier = modifier
     )
+}
+
+/** Claude (principal) y las otras IAs: una píldora por servicio; la activa va con el color de la cuenta. */
+@Composable
+private fun ServicePicker(current: AiService, fg: Color, accent: Color, onPick: (AiService) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        for (svc in AiService.entries) {
+            val on = svc == current
+            Text(
+                svc.label, color = fg, fontSize = 14.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(if (on) accent.copy(alpha = 0.18f) else fg.copy(alpha = 0.06f))
+                    .border(BorderStroke(if (on) 1.5.dp else 1.dp, if (on) accent else fg.copy(alpha = 0.20f)), CircleShape)
+                    .clickable(role = Role.Tab) { onPick(svc) }
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+            )
+        }
+    }
 }

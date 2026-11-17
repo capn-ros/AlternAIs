@@ -20,7 +20,12 @@ enum class Service(
     /** Color del texto y de los íconos neutros sobre ese fondo. */
     val onSurface: Int
 ) {
-    CLAUDE("claude", "Claude", "https://claude.ai/", listOf("claude.ai"), true, 0xFF1F1B18.toInt(), 0xFFF5EFE6.toInt());
+    CLAUDE("claude", "Claude", "https://claude.ai/", listOf("claude.ai"), true, 0xFF1F1B18.toInt(), 0xFFF5EFE6.toInt()),
+    CHATGPT("chatgpt", "ChatGPT", "https://chatgpt.com/", listOf("chatgpt.com", "openai.com"), true, 0xFF1F1B18.toInt(), 0xFFF5EFE6.toInt()),
+    GEMINI("gemini", "Gemini", "https://gemini.google.com/", listOf("gemini.google.com"), true, 0xFF1F1B18.toInt(), 0xFFF5EFE6.toInt()),
+    GROK("grok", "Grok", "https://grok.com/", listOf("grok.com", "x.ai"), true, 0xFF1F1B18.toInt(), 0xFFF5EFE6.toInt()),
+    DEEPSEEK("deepseek", "DeepSeek", "https://chat.deepseek.com/", listOf("deepseek.com"), true, 0xFF1F1B18.toInt(), 0xFFF5EFE6.toInt()),
+    REPLIT("replit", "Replit", "https://replit.com/", listOf("replit.com", "replit.dev", "repl.co"), false, 0xFFFBF8F4.toInt(), 0xFF1F1B18.toInt());
 
     companion object {
         fun fromKey(k: String?): Service = values().firstOrNull { it.key == k } ?: CLAUDE
