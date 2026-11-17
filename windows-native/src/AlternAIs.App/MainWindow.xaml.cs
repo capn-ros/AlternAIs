@@ -136,10 +136,13 @@ public sealed partial class MainWindow : Window
             _views.ShowOnly(null);
             _empty.Text = "Todavía no hay cuentas en " + _svc.State.Service.Label() + ".\nTocá «+» para agregar la primera.";
             _empty.Visibility = Visibility.Visible;
+            RenderEmptyServices(CurrentPalette);
+            _emptyServices.Visibility = Visibility.Visible;
             UpdateLoading();
             return;
         }
         _empty.Visibility = Visibility.Collapsed;
+        _emptyServices.Visibility = Visibility.Collapsed;
         try
         {
             await _views.GetAsync(acc, _svc.State.Service);
@@ -165,6 +168,7 @@ public sealed partial class MainWindow : Window
         _views.SetDark(pal.Dark);
         UpdateLoadingTheme(pal.Dark);
         _empty.Foreground = Palette.Brush(pal.Muted);
+        if (_emptyServices.Visibility == Visibility.Visible) RenderEmptyServices(pal);
         _rail.Background = Palette.Brush(pal.Stripe);
         _rail.BorderBrush = Palette.Brush(accent);
         _rail.BorderThickness = _svc.State.Settings.RailPos switch
@@ -285,6 +289,7 @@ public sealed partial class MainWindow : Window
         _empty.Margin = new Thickness(24);
         _webHost.Children.Add(_loadingLayer);
         _webHost.Children.Add(_empty);
+        _webHost.Children.Add(_emptyServices);
 
         _railScroll.Content = _railAccounts;
         _railScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Hidden;
@@ -486,6 +491,7 @@ public sealed partial class MainWindow : Window
         }
 
         _railAccounts.Children.Clear();
+        _railAccounts.Children.Add(AiSwitchButton(pal, accent)); // la IA actual, primera: un clic para cambiar
         foreach (var a in _svc.Accounts)
             _railAccounts.Children.Add(AccountItem(a, a.Id == _svc.SelectedId, pal, now, vertical));
 

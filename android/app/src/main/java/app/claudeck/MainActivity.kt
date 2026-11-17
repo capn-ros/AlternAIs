@@ -11,6 +11,7 @@ import app.claudeck.domain.usecase.DockGesture
 import app.claudeck.domain.usecase.DockGestures
 import app.claudeck.ui.dock.AccountAvatarView
 import app.claudeck.ui.dock.AddAccountButtonView
+import app.claudeck.ui.dock.AiPill
 import app.claudeck.ui.dock.TimeBarView
 import app.claudeck.ui.dock.AvatarState
 import app.claudeck.domain.usecase.AccountNavigation
@@ -447,6 +448,7 @@ class MainActivity : AppCompatActivity() {
         progress = findViewById(R.id.progress)
         emptyView = findViewById(R.id.emptyView)
         emptyIcon = findViewById(R.id.emptyIcon)
+        buildEmptyServicePicker()
         errorView = findViewById(R.id.errorView)
         applyServiceTheme()
 
@@ -1139,6 +1141,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateEmptyState() {
         val empty = accounts.isEmpty()
+        bindAiPill()
+        findViewById<MaterialButton>(R.id.btnAddEmpty)?.text = "Agregar cuenta de " + store.service.label
         emptyView.visibility = if (empty) View.VISIBLE else View.GONE
         infoRow.visibility = if (empty) View.GONE else View.VISIBLE
         if (empty) startEmptyAnim()
@@ -1366,6 +1370,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun retintIcons() {
         val c = accent()
+        bindAiPill()
         app.claudeck.ui.theme.AccentState.color = c // Compose (explorador, mensajes, navegador, diálogos) sigue a la cuenta
         // Botones de vistas clásicas (pantalla vacía y de error): también del color de la cuenta.
         for (id in intArrayOf(R.id.btnAddEmpty, R.id.btnRetry)) {
@@ -1739,12 +1744,80 @@ class MainActivity : AppCompatActivity() {
 
     // ---------------------------------------------------------------- Chips
 
+    /** Píldora de la barra con la IA actual: abre el selector para cambiar de IA sin pasar por Ajustes. */
+    private var aiPill: AiPill? = null
+
+    /** Una píldora por IA en la pantalla vacía (para poder volver o cambiar sin agregar una cuenta). */
+    private val emptyPills = mutableListOf<Pair<AiService, AiPill>>()
+
+    private fun bindAiPill() {
+        val c = accent()
+        aiPill?.bind(store.service.label + " ▾", c, store.onSurface, true)
+        aiPill?.contentDescription = "IA actual: ${store.service.label}. Tocá para cambiar de IA"
+        for ((svc, pill) in emptyPills) pill.bind(svc.label, c, store.onSurface, svc.key == store.service.key)
+    }
+
+    /** Lista de IAs con la cantidad de cuentas de cada una; la actual va marcada. */
+    private fun showServiceMenu(anchor: View) {
+        val menu = androidx.appcompat.widget.PopupMenu(this, anchor)
+        for (svc in AiService.entries) {
+            val n = store.loadFor(Service.fromKey(svc.key)).size
+            val mark = if (svc.key == store.service.key) "✓  " else "     "
+            menu.menu.add(0, svc.ordinal, svc.ordinal, mark + svc.label + if (n > 0) "  ($n)" else "")
+        }
+        menu.setOnMenuItemClickListener { item ->
+            switchService(Service.fromKey(AiService.entries[item.itemId].key))
+            true
+        }
+        menu.show()
+    }
+
+    /** Fila de IAs de la pantalla vacía, debajo del botón de agregar. */
+    private fun buildEmptyServicePicker() {
+        val root = emptyView as LinearLayout
+        val title = TextView(this).apply {
+            text = "O elegí otra IA"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(28), 0, dp(8))
+            tag = "emptyServicesTitle"
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        for (svc in AiService.entries) {
+            val pill = AiPill(this)
+            pill.setOnClickListener { switchService(Service.fromKey(svc.key)) }
+            row.addView(pill, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginStart = dp(4); marginEnd = dp(4)
+            })
+            emptyPills += svc to pill
+        }
+        val scroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(row)
+        }
+        root.addView(title, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    }
+
     private val circleSize get() = dp(44)
     private val circleExtra get() = dp(7)
 
     private fun rebuildChips(animateIn: Boolean = false) {
         chips.clear()
         chipGroup.removeAllViews()
+        // Primero, la IA actual: un toque abre la lista para cambiar.
+        val pill = AiPill(this)
+        pill.setOnClickListener { pop(pill); showServiceMenu(pill) }
+        aiPill = pill
+        bindAiPill()
+        chipGroup.addView(pill, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            marginStart = dp(10)
+            marginEnd = dp(6)
+        })
         val gap = LinearLayout.LayoutParams(circleSize, circleSize + circleExtra * 2).apply {
             marginStart = dp(6)
             marginEnd = dp(6)

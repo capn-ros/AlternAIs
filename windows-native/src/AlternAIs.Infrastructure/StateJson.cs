@@ -72,7 +72,7 @@ public static partial class StateJson
     public static string Serialize(AppState s)
     {
         var themes = new JsonObject { ["claude"] = s.ClaudeTheme };
-        var others = new JsonObject();
+        var others = new Dictionary<string, JsonNode>();
         foreach (var svc in Enum.GetValues<AiService>().Where(x => x != AiService.Claude))
         {
             var b = s.Bucket(svc);

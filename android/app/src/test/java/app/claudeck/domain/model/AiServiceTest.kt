@@ -24,7 +24,8 @@ class AiServiceTest {
     }
     @Test fun `las claves y los sitios no se repiten`() {
         assertEquals(AiService.entries.size, AiService.entries.map { it.key }.toSet().size)
-        assertEquals(AiService.entries.size, AiService.entries.flatMap { it.hosts }.toSet().size)
+        val hosts = AiService.entries.flatMap { it.hosts }
+        assertEquals(hosts.size, hosts.toSet().size) // ningún sitio pertenece a dos IAs
     }
     @Test fun `Replit arranca claro y las demas oscuras`() {
         assertFalse(AiService.REPLIT.defaultDark)
